@@ -1,0 +1,61 @@
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# === IDE / Editor ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === Rust build ===
+target/
+**/*.rs.bk
+Cargo.lock
+# Cargo.lock is gitignored because this is a library/workspace, not a deployed binary.
+# When the project matures and has a deployable binary, consider tracking it.
+
+# === Solana / Anchor ===
+.anchor/
+test-ledger/
+*.so
+!fork/cache/*.so
+
+# === Node (Anchor tooling) ===
+node_modules/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# === Wyniki symulacji (generowane, duze) ===
+results/
+
+# === Wewnetrzne plany i notatki (nie do repo) ===
+PLAN_KODU.md
+RAPORT_SCENARIUSZE.md
+SOLANA_DLA_LAIKA.md
+claude_project/
+
+# === Notatki z PDF-ami (duze pliki, copyrighted) ===
+notatki/
+
+# === Fork mainnetu cache (duze binaria i dumpy) ===
+fork/cache/
+
+# === Misc ===
+*.log
+.env
+.env.*

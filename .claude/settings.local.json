@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -T git@github.com-corey)",
+      "Bash(git init:*)",
+      "Bash(GH_HOST=github.com-corey gh api -X POST /user/repos -f name=magisterka -f description=\"Analiza podatności protokołów AMM na ataki typu MEV w sieci Solana\" -f private=true)",
+      "Bash(git remote:*)",
+      "Bash(git rebase:*)",
+      "Bash(git check-ignore:*)"
+    ]
+  }
+}
