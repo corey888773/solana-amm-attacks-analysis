@@ -11,7 +11,11 @@ pub struct PoolState {
 
 impl PoolState {
     pub fn new(reserve_a: u64, reserve_b: u64, fee_bps: u16) -> Self {
-        Self { reserve_a, reserve_b, fee_bps }
+        Self {
+            reserve_a,
+            reserve_b,
+            fee_bps,
+        }
     }
 
     /// k = reserve_a * reserve_b (constant product invariant)

@@ -1,4 +1,5 @@
 use crate::types::SwapResult;
+use crate::{BPS_DENOMINATOR, BPS_DENOMINATOR_F64};
 
 /// Compute output of a constant-product swap (x * y = k).
 ///
@@ -19,7 +20,7 @@ pub fn compute_swap(
     reserve_out: u64,
     fee_bps: u16,
 ) -> Option<SwapResult> {
-    if amount_in == 0 || reserve_in == 0 || reserve_out == 0 || fee_bps >= 10_000 {
+    if amount_in == 0 || reserve_in == 0 || reserve_out == 0 || fee_bps as u128 >= BPS_DENOMINATOR {
         return None;
     }
 
@@ -28,9 +29,10 @@ pub fn compute_swap(
     let reserve_out_128 = reserve_out as u128;
 
     // Deduct fee from input
-    let amount_after_fee = amount_in_128 * (10_000 - fee_bps as u128) / 10_000;
+    let amount_after_fee = amount_in_128 * (BPS_DENOMINATOR - fee_bps as u128) / BPS_DENOMINATOR;
 
     // Constant product formula: dy = (y * dx_after_fee) / (x + dx_after_fee)
+    // Source: Uniswap V2 whitepaper (Adams et al., 2020), Section 3.1.1
     let numerator = amount_after_fee * reserve_out_128;
     let denominator = reserve_in_128 + amount_after_fee;
     let amount_out = (numerator / denominator) as u64;
@@ -45,7 +47,7 @@ pub fn compute_swap(
 
     let price_before = reserve_out as f64 / reserve_in as f64;
     let price_after = new_reserve_out as f64 / new_reserve_in as f64;
-    let price_impact_bps = ((1.0 - price_after / price_before) * 10_000.0) as u64;
+    let price_impact_bps = ((1.0 - price_after / price_before) * BPS_DENOMINATOR_F64) as u64;
 
     Some(SwapResult {
         amount_out,
@@ -62,7 +64,7 @@ pub fn compute_swap(
 pub fn price_impact_bps(reserve_in: u64, reserve_out: u64, amount_in: u64) -> f64 {
     let price_before = reserve_out as f64 / reserve_in as f64;
     let effective_price = reserve_out as f64 / (reserve_in as f64 + amount_in as f64);
-    (1.0 - effective_price / price_before) * 10_000.0
+    (1.0 - effective_price / price_before) * BPS_DENOMINATOR_F64
 }
 
 #[cfg(test)]
@@ -112,6 +114,9 @@ mod tests {
         let r = compute_swap(500, 10_000, 10_000, 30).unwrap();
         let k_before = 10_000u128 * 10_000;
         let k_after = r.new_reserve_in as u128 * r.new_reserve_out as u128;
-        assert!(k_after >= k_before, "k must not decrease: {k_after} < {k_before}");
+        assert!(
+            k_after >= k_before,
+            "k must not decrease: {k_after} < {k_before}"
+        );
     }
 }
