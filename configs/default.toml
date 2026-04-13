@@ -1,0 +1,21 @@
+[simulation]
+num_iterations = 1
+seed = 42
+
+[pool]
+initial_reserve_a = 1_000_000
+initial_reserve_b = 4_000_000   # price ratio: 1 A = 4 B
+fee_bps = 30                    # 0.30% (typical Raydium/Uniswap)
+
+[victim]
+swap_amount = 10_000
+slippage_tolerance_bps = 300    # 3%
+direction = "a_to_b"
+
+[costs]
+base_fee_lamports = 5000
+priority_fee_lamports = 100_000
+jito_tip_lamports = 1_000_000   # ~0.001 SOL Jito tip
+
+[attacker]
+strategy = "optimal"
