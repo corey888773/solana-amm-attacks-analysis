@@ -1,5 +1,6 @@
 use crate::constant_product::compute_swap;
 use crate::types::SandwichResult;
+use crate::BPS_DENOMINATOR_F64;
 
 /// Analyze a sandwich attack: frontrun -> victim swap -> backrun.
 ///
@@ -25,7 +26,9 @@ pub fn optimal_sandwich(
 
     // Optimal frontrun with fee correction:
     // V_f* = (sqrt(x * (x + (1-phi)*v)) - x) / (1-phi)
-    let phi = fee_bps as f64 / 10_000.0;
+    // Source: Zhou et al., "High-Frequency Trading on Decentralized On-Chain Exchanges", IEEE S&P 2021
+    // Section IV-B, Equation 3 (generalized with fee parameter phi)
+    let phi = fee_bps as f64 / BPS_DENOMINATOR_F64;
     let one_minus_phi = 1.0 - phi;
     let v = victim_amount as f64;
     let x = reserve_in as f64;
@@ -51,9 +54,9 @@ pub fn optimal_sandwich(
     // Step 3: Backrun — attacker sells what they bought in frontrun
     // Direction flips: selling token_out back to token_in
     let backrun = compute_swap(
-        frontrun.amount_out,      // sell all tokens bought
-        victim.new_reserve_out,   // token_out is now "in"
-        victim.new_reserve_in,    // token_in is now "out"
+        frontrun.amount_out,    // sell all tokens bought
+        victim.new_reserve_out, // token_out is now "in"
+        victim.new_reserve_in,  // token_in is now "out"
         fee_bps,
     )?;
 
@@ -61,7 +64,7 @@ pub fn optimal_sandwich(
     let fair_swap = compute_swap(victim_amount, reserve_in, reserve_out, fee_bps)?;
     let victim_loss = fair_swap.amount_out as i64 - victim.amount_out as i64;
     let victim_extra_slippage_bps = if fair_swap.amount_out > 0 {
-        (victim_loss as f64 / fair_swap.amount_out as f64 * 10_000.0) as u64
+        (victim_loss as f64 / fair_swap.amount_out as f64 * BPS_DENOMINATOR_F64) as u64
     } else {
         0
     };
@@ -90,8 +93,14 @@ mod tests {
         let r = optimal_sandwich(50_000, 1_000_000, 1_000_000, 30, 100).unwrap();
         assert!(r.gross_profit > 0, "gross profit should be positive");
         assert!(r.frontrun_amount > 0);
-        assert!(r.frontrun_amount < 50_000, "frontrun should be less than victim");
-        assert!(r.victim_extra_slippage_bps > 0, "victim should suffer extra slippage");
+        assert!(
+            r.frontrun_amount < 50_000,
+            "frontrun should be less than victim"
+        );
+        assert!(
+            r.victim_extra_slippage_bps > 0,
+            "victim should suffer extra slippage"
+        );
     }
 
     #[test]
