@@ -1,0 +1,25 @@
+[package]
+name = "amm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+anchor-lang = "0.31.1"
+anchor-spl = "0.31.1"
+amm-math = { path = "../../crates/amm-math" }
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+
+[lints.rust]
+# Anchor 0.31.1 macros emit cfg checks and deprecated calls not under our control
+deprecated = "allow"
+unexpected_cfgs = { level = "allow", check-cfg = [
+    'cfg(feature, values("anchor-debug", "custom-heap", "custom-panic", "no-idl", "no-log-ix-name"))',
+    'cfg(target_os, values("solana"))',
+] }
