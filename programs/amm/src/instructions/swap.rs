@@ -72,7 +72,9 @@ pub fn handle_swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> R
         pool.reserve_b = result.new_reserve_in;
         pool.reserve_a = result.new_reserve_out;
     }
-    pool.k_last = (pool.reserve_a as u128) * (pool.reserve_b as u128);
+    pool.k_last = (pool.reserve_a as u128)
+        .checked_mul(pool.reserve_b as u128)
+        .ok_or(AmmError::MathOverflow)?;
 
     Ok(())
 }
@@ -96,7 +98,14 @@ pub struct Swap<'info> {
     )]
     pub pool_authority: UncheckedAccount<'info>,
 
+    #[account(
+        constraint = mint_in.key() == pool.token_a_mint || mint_in.key() == pool.token_b_mint,
+    )]
     pub mint_in: Box<InterfaceAccount<'info, Mint>>,
+    #[account(
+        constraint = mint_out.key() == pool.token_a_mint || mint_out.key() == pool.token_b_mint,
+        constraint = mint_out.key() != mint_in.key(),
+    )]
     pub mint_out: Box<InterfaceAccount<'info, Mint>>,
 
     /// Vault receiving input tokens (must be one of pool's vaults)
@@ -118,6 +127,9 @@ pub struct Swap<'info> {
         mut,
         token::mint = mint_in,
         token::authority = user,
+        token::token_program = token_program,
+        constraint = user_token_in.mint == pool.token_a_mint || user_token_in.mint == pool.token_b_mint,
+        constraint = mint_in.key() == user_token_in.mint,
     )]
     pub user_token_in: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -125,6 +137,10 @@ pub struct Swap<'info> {
         mut,
         token::mint = mint_out,
         token::authority = user,
+        token::token_program = token_program,
+        constraint = user_token_out.mint == pool.token_a_mint || user_token_out.mint == pool.token_b_mint,
+        constraint = user_token_out.mint != user_token_in.mint,
+        constraint = mint_out.key() == user_token_out.mint,
     )]
     pub user_token_out: Box<InterfaceAccount<'info, TokenAccount>>,
 

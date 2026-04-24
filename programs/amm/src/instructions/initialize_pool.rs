@@ -46,6 +46,9 @@ pub struct InitializePool<'info> {
     )]
     pub pool_authority: UncheckedAccount<'info>,
 
+    #[account(
+        constraint = token_a_mint.key() < token_b_mint.key() @ AmmError::InvalidMintOrder,
+    )]
     pub token_a_mint: Box<InterfaceAccount<'info, Mint>>,
     pub token_b_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -55,7 +58,7 @@ pub struct InitializePool<'info> {
         token::mint = token_a_mint,
         token::authority = pool_authority,
         token::token_program = token_program,
-        seeds = [b"vault_a", pool.key().as_ref()],
+        seeds = [VAULT_A_SEED, pool.key().as_ref()],
         bump,
     )]
     pub token_a_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -66,7 +69,7 @@ pub struct InitializePool<'info> {
         token::mint = token_b_mint,
         token::authority = pool_authority,
         token::token_program = token_program,
-        seeds = [b"vault_b", pool.key().as_ref()],
+        seeds = [VAULT_B_SEED, pool.key().as_ref()],
         bump,
     )]
     pub token_b_vault: Box<InterfaceAccount<'info, TokenAccount>>,

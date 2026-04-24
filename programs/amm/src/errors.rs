@@ -12,4 +12,6 @@ pub enum AmmError {
     InsufficientLiquidity,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("Invalid mint order: token_a_mint must be lexicographically less than token_b_mint")]
+    InvalidMintOrder,
 }
