@@ -78,6 +78,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
     )?;
 
     let gross_profit = backrun.amount_out as i64 - frontrun_amount as i64;
+    // Both gross_profit and tx_cost are in input-token units (smallest denomination of token_in).
     let net_profit = gross_profit - scenario.tx_cost as i64;
     let victim_loss = fair_swap
         .amount_out

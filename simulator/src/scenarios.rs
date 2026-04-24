@@ -9,6 +9,7 @@ pub struct Scenario {
     pub pool_fee_bps: u16,
     pub victim_swap_amount: u64,
     pub victim_slippage_bps: u16,
+    /// cost of 2 txs expressed in input-token units (converted from lamports at configured SOL price)
     pub tx_cost: u64,
 }
 
@@ -21,7 +22,7 @@ pub fn generate(config: &SimConfig) -> Vec<Scenario> {
         pool_fee_bps: config.pool.fee_bps,
         victim_swap_amount: config.victim.swap_amount,
         victim_slippage_bps: config.victim.slippage_tolerance_bps,
-        tx_cost: config.costs.total(),
+        tx_cost: config.costs.total_in_input_token(),
     };
 
     match &config.sweep {

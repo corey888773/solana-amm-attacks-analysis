@@ -16,6 +16,11 @@ direction = "a_to_b"
 base_fee_lamports = 5000
 priority_fee_lamports = 100_000
 jito_tip_lamports = 1_000_000   # ~0.001 SOL Jito tip
+# Price of 1 SOL in units of the input token (token_in smallest denomination).
+# Used to convert lamport fees into input-token units for net-profit math.
+# SOL ≈ 150 USDC (April 2026) and USDC has 6 decimals, so 1 SOL = 150 * 1e6 = 150_000_000
+# base units of USDC. If input token is whole-unit, use 150.0 instead.
+input_token_per_sol = 150_000_000.0
 
 [attacker]
 strategy = "optimal"

@@ -12,7 +12,7 @@ amm-math = { path = "../crates/amm-math" }
 clap = { version = "4", features = ["derive"] }
 figment = { version = "0.10", features = ["toml", "env"] }
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 csv = "1"
-itertools = "0.13"
+itertools = "0.14"
 rayon = "1"

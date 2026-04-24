@@ -31,6 +31,9 @@ pub struct SimulationRecord {
     pub price_impact_bps: u64,
 
     // Meta
+    /// Total transaction cost for the sandwich (front+back) expressed in input-token units
+    /// (smallest denomination of token_in), converted from lamports via
+    /// `costs.input_token_per_sol`. CSV column name kept as `tx_cost_total` for backward compat.
     pub tx_cost_total: u64,
     pub iteration: u32,
     pub source: String,
