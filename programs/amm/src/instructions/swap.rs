@@ -96,15 +96,15 @@ pub struct Swap<'info> {
     )]
     pub pool_authority: UncheckedAccount<'info>,
 
-    pub mint_in: InterfaceAccount<'info, Mint>,
-    pub mint_out: InterfaceAccount<'info, Mint>,
+    pub mint_in: Box<InterfaceAccount<'info, Mint>>,
+    pub mint_out: Box<InterfaceAccount<'info, Mint>>,
 
     /// Vault receiving input tokens (must be one of pool's vaults)
     #[account(
         mut,
         constraint = vault_in.key() == pool.token_a_vault || vault_in.key() == pool.token_b_vault,
     )]
-    pub vault_in: InterfaceAccount<'info, TokenAccount>,
+    pub vault_in: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// Vault sending output tokens (must be the other vault)
     #[account(
@@ -112,21 +112,21 @@ pub struct Swap<'info> {
         constraint = vault_out.key() == pool.token_a_vault || vault_out.key() == pool.token_b_vault,
         constraint = vault_out.key() != vault_in.key(),
     )]
-    pub vault_out: InterfaceAccount<'info, TokenAccount>,
+    pub vault_out: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         token::mint = mint_in,
         token::authority = user,
     )]
-    pub user_token_in: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_in: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         token::mint = mint_out,
         token::authority = user,
     )]
-    pub user_token_out: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_out: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }
