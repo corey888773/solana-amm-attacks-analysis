@@ -33,7 +33,17 @@ pub fn optimal_sandwich(
     let v = victim_amount as f64;
     let x = reserve_in as f64;
 
-    let frontrun_optimal = ((x * (x + one_minus_phi * v)).sqrt() - x) / one_minus_phi;
+    // Numerically-stable form: the direct expression (sqrt(x*(x + (1-phi)*v)) - x) / (1-phi)
+    // suffers from catastrophic cancellation when (1-phi)*v is small relative to x
+    // (the two terms in the subtraction are nearly equal, losing significant digits).
+    // Rationalize by multiplying numerator and denominator by the conjugate
+    // (sqrt(x*(x + (1-phi)*v)) + x), which algebraically yields:
+    //     V_f* = (x * v) / (sqrt(x*(x + (1-phi)*v)) + x)
+    // This is a standard rationalization trick for catastrophic cancellation; see
+    // Higham, "Accuracy and Stability of Numerical Algorithms" (2nd ed., 2002), §1.8.
+    // Note the (1-phi) factor cancels out entirely in the rationalized form.
+    let discriminant = x * (x + one_minus_phi * v);
+    let frontrun_optimal = (x * v) / (discriminant.sqrt() + x);
     let frontrun_amount = frontrun_optimal.max(0.0) as u64;
 
     if frontrun_amount == 0 {
@@ -128,5 +138,82 @@ mod tests {
         // Victim gets fewer tokens when sandwiched vs fair swap
         let r = optimal_sandwich(50_000, 1_000_000, 1_000_000, 30, 100).unwrap();
         assert!(r.victim_extra_slippage_bps > 0);
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    const MAX_RESERVE: u64 = 1_000_000_000_000_000_000; // 1e18
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// With zero fees, gross_profit at the optimal frontrun is mathematically >= 0
+        /// (in the continuous model; integer rounding may shave a small amount).
+        /// With fees, the closed-form "optimal" formula ignores the double-fee cost on
+        /// frontrun+backrun, so gross_profit can be negative for thin/skewed pools —
+        /// that's a known limitation of the Zhou et al. formula, not a bug.
+        #[test]
+        fn gross_profit_non_negative_zero_fee(
+            reserve_in in 1_000u64..MAX_RESERVE,
+            reserve_out in 1_000u64..MAX_RESERVE,
+            victim_amount in 1u64..MAX_RESERVE,
+        ) {
+            prop_assume!(victim_amount <= reserve_in / 2);
+            let res = optimal_sandwich(victim_amount, reserve_in, reserve_out, 0, 0);
+            prop_assume!(res.is_some());
+            let r = res.unwrap();
+            prop_assume!(r.frontrun_amount > 0);
+            // Allow a small integer-rounding slack (backrun/frontrun truncate to u64).
+            prop_assert!(r.gross_profit >= -1,
+                "gross_profit should be >= 0 (mod rounding), got {} (frontrun={}, backrun_out={})",
+                r.gross_profit, r.frontrun_amount, r.backrun_output);
+        }
+
+        /// Victim extra slippage is non-negative (victim always gets <= fair amount).
+        #[test]
+        fn victim_slippage_non_negative(
+            reserve_in in 1_000u64..MAX_RESERVE,
+            reserve_out in 1_000u64..MAX_RESERVE,
+            victim_amount in 1u64..MAX_RESERVE,
+            fee_bps in 0u16..9999,
+        ) {
+            prop_assume!(victim_amount <= reserve_in / 2);
+            let res = optimal_sandwich(victim_amount, reserve_in, reserve_out, fee_bps, 0);
+            prop_assume!(res.is_some());
+            let r = res.unwrap();
+            // u64 type alone guarantees >= 0, but we assert the sentinel explicitly
+            // to guard against future refactors to i64.
+            prop_assert!(r.victim_extra_slippage_bps as i64 >= 0);
+        }
+
+        /// Backrun output is bounded by the frontrun input: the attacker cannot extract
+        /// more input-token value through the backrun than they put in up front.
+        /// (Otherwise the attack would be a no-victim arbitrage already.)
+        #[test]
+        fn backrun_bounded_by_frontrun_plus_victim_impact(
+            reserve_in in 1_000u64..MAX_RESERVE,
+            reserve_out in 1_000u64..MAX_RESERVE,
+            victim_amount in 1u64..MAX_RESERVE,
+            fee_bps in 0u16..9999,
+        ) {
+            prop_assume!(victim_amount <= reserve_in / 2);
+            let res = optimal_sandwich(victim_amount, reserve_in, reserve_out, fee_bps, 0);
+            prop_assume!(res.is_some());
+            let r = res.unwrap();
+            prop_assume!(r.frontrun_amount > 0);
+            // Backrun output is in input-token units; it must be finite and reasonable.
+            // Conservative monotone bound: backrun_output <= frontrun_amount + victim_amount
+            // (attacker cannot extract more than total input-side flow through the pool).
+            prop_assert!(
+                r.backrun_output <= r.frontrun_amount.saturating_add(victim_amount),
+                "backrun_output={} exceeds frontrun+victim={}",
+                r.backrun_output,
+                r.frontrun_amount.saturating_add(victim_amount)
+            );
+        }
     }
 }

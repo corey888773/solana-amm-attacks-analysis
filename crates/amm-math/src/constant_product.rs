@@ -41,9 +41,10 @@ pub fn compute_swap(
         return None;
     }
 
-    let fee_amount = amount_in - (amount_after_fee as u64);
-    let new_reserve_in = reserve_in + amount_in;
-    let new_reserve_out = reserve_out - amount_out;
+    let fee_amount = amount_in.checked_sub(amount_after_fee as u64)?;
+    // `reserve_in + amount_in` can overflow u64 for near-u64::MAX pools; guard defensively.
+    let new_reserve_in = reserve_in.checked_add(amount_in)?;
+    let new_reserve_out = reserve_out.checked_sub(amount_out)?;
 
     let price_before = reserve_out as f64 / reserve_in as f64;
     let price_after = new_reserve_out as f64 / new_reserve_in as f64;
@@ -118,5 +119,75 @@ mod tests {
             k_after >= k_before,
             "k must not decrease: {k_after} < {k_before}"
         );
+    }
+
+    #[test]
+    fn overflow_returns_none() {
+        // reserve_in + amount_in would overflow u64
+        assert!(compute_swap(u64::MAX, u64::MAX, 1_000_000, 30).is_none());
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    const MAX_RESERVE: u64 = 1_000_000_000_000_000_000; // 1e18
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Conservation of token_out: amount_out + new_reserve_out == reserve_out.
+        #[test]
+        fn conservation_of_token_out(
+            reserve_in in 1_000u64..MAX_RESERVE,
+            reserve_out in 1_000u64..MAX_RESERVE,
+            amount_in_frac in 1u64..1_000_000,
+            fee_bps in 0u16..9999,
+        ) {
+            let amount_in = (reserve_in / 2).max(1).min(amount_in_frac.saturating_mul(reserve_in / 1_000_000).max(1));
+            let res = compute_swap(amount_in, reserve_in, reserve_out, fee_bps);
+            prop_assume!(res.is_some());
+            let r = res.unwrap();
+            prop_assert_eq!(r.amount_out + r.new_reserve_out, reserve_out);
+        }
+
+        /// k-invariant non-decreasing (rounding favors the pool).
+        #[test]
+        fn k_invariant_non_decreasing(
+            reserve_in in 1_000u64..MAX_RESERVE,
+            reserve_out in 1_000u64..MAX_RESERVE,
+            amount_in in 1u64..MAX_RESERVE,
+            fee_bps in 0u16..9999,
+        ) {
+            prop_assume!(amount_in <= reserve_in / 2);
+            let res = compute_swap(amount_in, reserve_in, reserve_out, fee_bps);
+            prop_assume!(res.is_some());
+            let r = res.unwrap();
+            let k_before = reserve_in as u128 * reserve_out as u128;
+            let k_after = r.new_reserve_in as u128 * r.new_reserve_out as u128;
+            prop_assert!(k_after >= k_before, "k decreased: before={} after={}", k_before, k_after);
+        }
+
+        /// Round-trip (swap then reverse swap) loses value to fees: out <= amount_in.
+        /// With zero fee it may equal amount_in minus rounding; with fee it is strictly less.
+        #[test]
+        fn round_trip_loses_to_fees(
+            reserve_in in 1_000u64..MAX_RESERVE,
+            reserve_out in 1_000u64..MAX_RESERVE,
+            amount_in in 1u64..MAX_RESERVE,
+            fee_bps in 1u16..9999,
+        ) {
+            prop_assume!(amount_in <= reserve_in / 2);
+            let fwd = compute_swap(amount_in, reserve_in, reserve_out, fee_bps);
+            prop_assume!(fwd.is_some());
+            let fwd = fwd.unwrap();
+            let back = compute_swap(fwd.amount_out, fwd.new_reserve_out, fwd.new_reserve_in, fee_bps);
+            prop_assume!(back.is_some());
+            let back = back.unwrap();
+            prop_assert!(back.amount_out < amount_in,
+                "round-trip should lose to fees: got {} from {}", back.amount_out, amount_in);
+        }
     }
 }
