@@ -7,18 +7,34 @@ use crate::constants::*;
 use crate::errors::AmmError;
 use crate::state::Pool;
 
-pub fn handle_remove_liquidity(ctx: Context<RemoveLiquidity>, lp_amount: u64) -> Result<()> {
+pub fn handle_remove_liquidity(
+    ctx: Context<RemoveLiquidity>,
+    lp_amount: u64,
+    min_a_out: u64,
+    min_b_out: u64,
+) -> Result<()> {
     require!(lp_amount > 0, AmmError::ZeroAmount);
 
     let pool = &mut ctx.accounts.pool;
     let pool_key = pool.key();
-    let supply = ctx.accounts.lp_mint.supply;
+    let supply = ctx.accounts.lp_mint.supply as u128;
+    require!(supply > 0, AmmError::InsufficientLiquidity);
 
     // Proportional withdrawal: amount = reserve * lp_amount / total_supply
-    let amount_a = (pool.reserve_a as u128 * lp_amount as u128 / supply as u128) as u64;
-    let amount_b = (pool.reserve_b as u128 * lp_amount as u128 / supply as u128) as u64;
+    let amount_a = ((pool.reserve_a as u128)
+        .checked_mul(lp_amount as u128)
+        .ok_or(AmmError::MathOverflow)?
+        / supply) as u64;
+    let amount_b = ((pool.reserve_b as u128)
+        .checked_mul(lp_amount as u128)
+        .ok_or(AmmError::MathOverflow)?
+        / supply) as u64;
 
     require!(amount_a > 0 && amount_b > 0, AmmError::InsufficientLiquidity);
+    require!(
+        amount_a >= min_a_out && amount_b >= min_b_out,
+        AmmError::SlippageExceeded
+    );
 
     let authority_seeds: &[&[u8]] = &[
         POOL_AUTHORITY_SEED,
@@ -64,10 +80,18 @@ pub fn handle_remove_liquidity(ctx: Context<RemoveLiquidity>, lp_amount: u64) ->
     );
     token_interface::transfer_checked(transfer_b_ctx, amount_b, ctx.accounts.token_b_mint.decimals)?;
 
-    // Update pool reserves
-    pool.reserve_a -= amount_a;
-    pool.reserve_b -= amount_b;
-    pool.k_last = (pool.reserve_a as u128) * (pool.reserve_b as u128);
+    // Update pool reserves using checked arithmetic.
+    pool.reserve_a = pool
+        .reserve_a
+        .checked_sub(amount_a)
+        .ok_or(AmmError::MathOverflow)?;
+    pool.reserve_b = pool
+        .reserve_b
+        .checked_sub(amount_b)
+        .ok_or(AmmError::MathOverflow)?;
+    pool.k_last = (pool.reserve_a as u128)
+        .checked_mul(pool.reserve_b as u128)
+        .ok_or(AmmError::MathOverflow)?;
 
     Ok(())
 }
@@ -108,6 +132,7 @@ pub struct RemoveLiquidity<'info> {
         mut,
         token::mint = lp_mint,
         token::authority = user,
+        token::token_program = token_program,
     )]
     pub user_lp_token: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -115,6 +140,7 @@ pub struct RemoveLiquidity<'info> {
         mut,
         token::mint = token_a_mint,
         token::authority = user,
+        token::token_program = token_program,
     )]
     pub user_token_a: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -122,6 +148,7 @@ pub struct RemoveLiquidity<'info> {
         mut,
         token::mint = token_b_mint,
         token::authority = user,
+        token::token_program = token_program,
     )]
     pub user_token_b: Box<InterfaceAccount<'info, TokenAccount>>,
 
