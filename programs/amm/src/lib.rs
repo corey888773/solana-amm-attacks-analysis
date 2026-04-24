@@ -7,7 +7,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("AMM1111111111111111111111111111111111111111");
+declare_id!("DEwKoXtDPgme9dVdKVj7eLta7mzFDyGxA9DCssTVEiRz");
 
 #[program]
 pub mod amm {

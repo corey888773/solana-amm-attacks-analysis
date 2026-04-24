@@ -60,7 +60,7 @@ pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, amount_a: u64, amount_b:
     // Mint LP tokens to user
     let signer_seeds: &[&[&[u8]]] = &[authority_seeds];
     let mint_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.token_program.key(),
         MintTo {
             mint: ctx.accounts.lp_mint.to_account_info(),
             to: ctx.accounts.user_lp_token.to_account_info(),
@@ -87,7 +87,7 @@ fn transfer_to_vault<'info>(
     amount: u64,
 ) -> Result<()> {
     let cpi_ctx = CpiContext::new(
-        token_program.to_account_info(),
+        token_program.key(),
         TransferChecked {
             from: from.to_account_info(),
             to: to.to_account_info(),

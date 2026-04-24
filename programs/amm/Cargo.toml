@@ -7,14 +7,17 @@ edition = "2021"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-anchor-lang = "0.31.1"
-anchor-spl = "0.31.1"
+anchor-lang = "1.0"
+anchor-spl = "1.0"
 amm-math = { path = "../../crates/amm-math" }
 
 [features]
 default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
+# LiteSVM dev-deps temporarily disabled due to upstream bug:
+# solana-keypair 3.1.2 uses five8 decode API that got removed in five8 1.0
+# (DecodeError no longer impls std::error::Error). Waiting for solana-sdk fix.
 
 [lints.rust]
 # Anchor 0.31.1 macros emit cfg checks and deprecated calls not under our control
