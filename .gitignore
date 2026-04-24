@@ -14,9 +14,6 @@
 # === Rust build ===
 target/
 **/*.rs.bk
-Cargo.lock
-# Cargo.lock is gitignored because this is a library/workspace, not a deployed binary.
-# When the project matures and has a deployable binary, consider tracking it.
 
 # === Solana / Anchor ===
 .anchor/
