@@ -15,9 +15,16 @@ amm-math = { path = "../../crates/amm-math" }
 default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
-# LiteSVM dev-deps temporarily disabled due to upstream bug:
-# solana-keypair 3.1.2 uses five8 decode API that got removed in five8 1.0
-# (DecodeError no longer impls std::error::Error). Waiting for solana-sdk fix.
+
+[dev-dependencies]
+litesvm = "0.11"
+solana-sdk = "3"
+solana-keypair = "3.1.2"
+solana-signer = "3"
+solana-pubkey = "3"
+solana-transaction = "3"
+solana-message = "3"
+solana-system-interface = "2"
 
 [lints.rust]
 # Anchor 0.31.1 macros emit cfg checks and deprecated calls not under our control
