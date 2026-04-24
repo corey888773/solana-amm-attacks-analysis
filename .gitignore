@@ -44,9 +44,7 @@ venv/
 results/
 
 # === Wewnetrzne plany i notatki (nie do repo) ===
-PLAN_KODU.md
-RAPORT_SCENARIUSZE.md
-SOLANA_DLA_LAIKA.md
+.docs/
 claude_project/
 
 # === Notatki z PDF-ami (duze pliki, copyrighted) ===
@@ -66,6 +64,3 @@ fork/cache/
 
 # === Caveman compress backups ===
 *.original.md
-
-# === Local reference docs (not for repo) ===
-GUIDE.md

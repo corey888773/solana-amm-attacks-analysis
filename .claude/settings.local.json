@@ -8,7 +8,12 @@
       "Bash(git rebase:*)",
       "Bash(git check-ignore:*)",
       "Bash(python3 -m scripts /Users/piotrgasiorek/Studia/magisterka/CLAUDE.md)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(cargo search *)",
+      "Bash(cargo-build-sbf --version)",
+      "Bash(solana --version)",
+      "Bash(git reset *)",
+      "Bash(cargo-build-sbf --manifest-path programs/amm/Cargo.toml)"
     ]
   }
 }
