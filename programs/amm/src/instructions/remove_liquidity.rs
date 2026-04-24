@@ -29,7 +29,7 @@ pub fn handle_remove_liquidity(ctx: Context<RemoveLiquidity>, lp_amount: u64) ->
 
     // Burn LP tokens
     let burn_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.token_program.key(),
         Burn {
             mint: ctx.accounts.lp_mint.to_account_info(),
             from: ctx.accounts.user_lp_token.to_account_info(),
@@ -40,7 +40,7 @@ pub fn handle_remove_liquidity(ctx: Context<RemoveLiquidity>, lp_amount: u64) ->
 
     // Transfer token A from vault to user
     let transfer_a_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.token_program.key(),
         TransferChecked {
             from: ctx.accounts.token_a_vault.to_account_info(),
             to: ctx.accounts.user_token_a.to_account_info(),
@@ -53,7 +53,7 @@ pub fn handle_remove_liquidity(ctx: Context<RemoveLiquidity>, lp_amount: u64) ->
 
     // Transfer token B from vault to user
     let transfer_b_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.token_program.key(),
         TransferChecked {
             from: ctx.accounts.token_b_vault.to_account_info(),
             to: ctx.accounts.user_token_b.to_account_info(),

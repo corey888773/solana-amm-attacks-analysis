@@ -41,7 +41,7 @@ pub fn handle_swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> R
 
     // Transfer input tokens from user to vault
     let transfer_in_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.token_program.key(),
         TransferChecked {
             from: ctx.accounts.user_token_in.to_account_info(),
             to: ctx.accounts.vault_in.to_account_info(),
@@ -53,7 +53,7 @@ pub fn handle_swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> R
 
     // Transfer output tokens from vault to user
     let transfer_out_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.token_program.key(),
         TransferChecked {
             from: ctx.accounts.vault_out.to_account_info(),
             to: ctx.accounts.user_token_out.to_account_info(),
