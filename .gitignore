@@ -59,3 +59,13 @@ fork/cache/
 *.log
 .env
 .env.*
+
+# === MCP / Serena cache ===
+.mcp.json
+.serena/
+
+# === Caveman compress backups ===
+*.original.md
+
+# === Local reference docs (not for repo) ===
+GUIDE.md
