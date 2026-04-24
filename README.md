@@ -92,17 +92,17 @@ flowchart LR
     s2["step 2 (after victim)<br/>(R_a + dA_f + dA_v,<br/>R_b - dB_f - dB_v')<br/>slippage may abort"]:::pool
     s3["step 3 (after backrun)<br/>(R_a', R_b')<br/>attacker realises PnL"]:::pool
 
-    s0 -->|"① FRONTRUN<br/>attacker: dA_f of A → B"| s1
-    s1 -->|"② VICTIM SWAP<br/>victim: dA_v at degraded price"| s2
-    s2 -->|"③ BACKRUN<br/>attacker: dB → A"| s3
-
-    subgraph LEGEND["Accounting per scenario"]
-        pnl["attacker_pnl = A_out − dA_f − fees − tip<br/>victim_slippage = price_2 / price_0 − 1<br/>aborted if slippage > slippage_tolerance_bps"]:::legend
-    end
+    s0 -->|"① attacker frontruns<br/>dA_f of A → B"| s1
+    s1 -->|"② victim swaps<br/>dA_v at degraded price"| s2
+    s2 -->|"③ attacker backruns<br/>dB of B → A"| s3
 
     classDef pool fill:#FFE4B5,stroke:#D97757,stroke-width:2px,color:#3E3A34;
-    classDef legend fill:#D8CCE8,stroke:#6B5B95,stroke-width:2px,color:#2E2A3E;
 ```
+
+**Per-scenario metrics:**
+- `attacker_pnl = A_out − dA_f − fees − tip`
+- `victim_slippage = price_2 / price_0 − 1`
+- swap aborts if `victim_slippage > slippage_tolerance_bps`
 
 Each scenario records: attacker profit/loss, victim slippage, pool price
 drift, gas and Jito tip costs, and whether the victim's slippage
