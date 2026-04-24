@@ -14,40 +14,53 @@ inside LiteSVM (planned).
 
 ## Architecture
 
-```
-      ┌────────────────────────┐
-      │   configs/*.toml       │   pool, victim, costs, sweep ranges
-      └───────────┬────────────┘
-                  │ figment (TOML loader)
-                  ▼
-      ┌────────────────────────┐
-      │   simulator (mev-sim)  │   clap CLI + rayon parallel sweep
-      │   ─ engine             │
-      │   ─ scenarios          │
-      │   ─ output (csv)       │
-      └─────┬──────────────┬───┘
-            │ uses         │ loads amm.so (planned)
-            ▼              ▼
-  ┌──────────────────┐   ┌────────────────────────┐
-  │  amm-math        │   │  LiteSVM   (planned)   │
-  │  ─ constant      │◄──┤  in-process Solana VM  │
-  │    product swap  │   └───────────┬────────────┘
-  │  ─ sandwich      │               │ invokes
-  │    optimizer     │               ▼
-  │  (pure, no_std-  │   ┌────────────────────────┐
-  │   friendly)      │──►│  programs/amm          │
-  └──────────────────┘   │  Anchor on-chain prog  │
-       shared crate      │  (cdylib: amm.so)      │
-                         └────────────────────────┘
+```mermaid
+%%{init: {
+  "look": "handDrawn",
+  "themeVariables": {
+    "fontFamily": "Comic Sans MS, Comic Sans, cursive",
+    "background": "#FFF8E7",
+    "primaryColor": "#FFF1CC",
+    "primaryBorderColor": "#D97757",
+    "primaryTextColor": "#3E3A34",
+    "lineColor": "#8B6F47",
+    "secondaryColor": "#E8D5B7",
+    "tertiaryColor": "#F5EBD6"
+  }
+}}%%
+flowchart LR
+    subgraph OFFCHAIN["Off-chain Rust workspace"]
+        cfg["configs/*.toml"]:::offchain
+        sim["simulator<br/>mev-sim"]:::offchain
+    end
 
-      ┌────────────────────────┐
-      │   results/*.csv        │   per-scenario metrics
-      └───────────┬────────────┘
-                  │
-                  ▼
-      ┌────────────────────────┐
-      │   Jupyter notebook     │   plots, statistics (planned)
-      └────────────────────────┘
+    subgraph SHARED["Shared crate"]
+        math["amm-math<br/>single source of truth"]:::shared
+    end
+
+    subgraph ONCHAIN["On-chain Solana Anchor"]
+        prog["programs/amm<br/>amm.so"]:::onchain
+        svm["LiteSVM<br/>&#40;planned&#41;"]:::planned
+    end
+
+    subgraph OUTPUT["Output and Analysis"]
+        csv["results/*.csv"]:::output
+        nb["Jupyter notebook<br/>&#40;planned&#41;"]:::planned
+    end
+
+    cfg -->|figment loads| sim
+    sim -->|calls| math
+    math -->|links into| prog
+    sim -.->|planned: in-process VM| svm
+    svm -->|invokes program| prog
+    sim -->|writes rows| csv
+    csv -.->|plots and stats| nb
+
+    classDef offchain fill:#FFE4B5,stroke:#D97757,stroke-width:2px,color:#3E3A34;
+    classDef shared fill:#F5EBD6,stroke:#8B6F47,stroke-width:2px,color:#3E3A34;
+    classDef onchain fill:#C8DBC0,stroke:#5F7A5A,stroke-width:2px,color:#2E3E2A;
+    classDef output fill:#D8CCE8,stroke:#6B5B95,stroke-width:2px,color:#2E2A3E;
+    classDef planned fill:#F0E8D8,stroke:#999,stroke-width:2px,stroke-dasharray:6 4,color:#666;
 ```
 
 The `amm-math` crate is the single source of truth for swap math. The
@@ -61,33 +74,34 @@ A sandwich brackets a victim swap with an attacker frontrun (same
 direction) and backrun (opposite direction). Reserves evolve across
 three steps:
 
-```
-  step 0: initial pool
-  ┌──────────────────────┐
-  │ reserve_A = R_a      │   price = R_b / R_a
-  │ reserve_B = R_b      │
-  └──────────────────────┘
-            │
-            │  (1) FRONTRUN   attacker swaps dA_f of A -> B
-            ▼                 price of B rises
-  ┌──────────────────────┐
-  │ reserve_A = R_a + dA │   victim now faces worse price
-  │ reserve_B = R_b - dB │
-  └──────────────────────┘
-            │
-            │  (2) VICTIM     swaps dA_v of A -> B at degraded price
-            ▼                 (may exceed slippage_tolerance_bps)
-  ┌──────────────────────┐
-  │ reserve_A +=  dA_v   │
-  │ reserve_B -=  dB_v'  │
-  └──────────────────────┘
-            │
-            │  (3) BACKRUN    attacker swaps their dB back to A
-            ▼                 realizing profit vs. step 0
-  ┌──────────────────────┐
-  │ reserve_A = R_a'     │
-  │ reserve_B = R_b'     │   attacker_pnl = A_out - dA_f - fees - tip
-  └──────────────────────┘
+```mermaid
+%%{init: {
+  "look": "handDrawn",
+  "themeVariables": {
+    "fontFamily": "Comic Sans MS, Comic Sans, cursive",
+    "background": "#FFF8E7",
+    "primaryColor": "#FFF1CC",
+    "primaryBorderColor": "#D97757",
+    "primaryTextColor": "#3E3A34",
+    "lineColor": "#8B6F47"
+  }
+}}%%
+flowchart LR
+    s0["step 0 (initial)<br/>reserves = (R_a, R_b)<br/>price = R_b / R_a"]:::pool
+    s1["step 1 (after frontrun)<br/>(R_a + dA_f, R_b - dB_f)<br/>price of B rises"]:::pool
+    s2["step 2 (after victim)<br/>(R_a + dA_f + dA_v,<br/>R_b - dB_f - dB_v')<br/>slippage may abort"]:::pool
+    s3["step 3 (after backrun)<br/>(R_a', R_b')<br/>attacker realises PnL"]:::pool
+
+    s0 -->|"① FRONTRUN<br/>attacker: dA_f of A → B"| s1
+    s1 -->|"② VICTIM SWAP<br/>victim: dA_v at degraded price"| s2
+    s2 -->|"③ BACKRUN<br/>attacker: dB → A"| s3
+
+    subgraph LEGEND["Accounting per scenario"]
+        pnl["attacker_pnl = A_out − dA_f − fees − tip<br/>victim_slippage = price_2 / price_0 − 1<br/>aborted if slippage > slippage_tolerance_bps"]:::legend
+    end
+
+    classDef pool fill:#FFE4B5,stroke:#D97757,stroke-width:2px,color:#3E3A34;
+    classDef legend fill:#D8CCE8,stroke:#6B5B95,stroke-width:2px,color:#2E2A3E;
 ```
 
 Each scenario records: attacker profit/loss, victim slippage, pool price
