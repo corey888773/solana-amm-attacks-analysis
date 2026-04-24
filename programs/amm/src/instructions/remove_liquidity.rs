@@ -92,38 +92,38 @@ pub struct RemoveLiquidity<'info> {
     pub pool_authority: UncheckedAccount<'info>,
 
     #[account(address = pool.token_a_mint)]
-    pub token_a_mint: InterfaceAccount<'info, Mint>,
+    pub token_a_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(address = pool.token_b_mint)]
-    pub token_b_mint: InterfaceAccount<'info, Mint>,
+    pub token_b_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut, address = pool.token_a_vault)]
-    pub token_a_vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_a_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.token_b_vault)]
-    pub token_b_vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_b_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut, address = pool.lp_mint)]
-    pub lp_mint: InterfaceAccount<'info, Mint>,
+    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
         token::mint = lp_mint,
         token::authority = user,
     )]
-    pub user_lp_token: InterfaceAccount<'info, TokenAccount>,
+    pub user_lp_token: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         token::mint = token_a_mint,
         token::authority = user,
     )]
-    pub user_token_a: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_a: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         token::mint = token_b_mint,
         token::authority = user,
     )]
-    pub user_token_b: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_b: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }

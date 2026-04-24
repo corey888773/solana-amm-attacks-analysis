@@ -46,8 +46,8 @@ pub struct InitializePool<'info> {
     )]
     pub pool_authority: UncheckedAccount<'info>,
 
-    pub token_a_mint: InterfaceAccount<'info, Mint>,
-    pub token_b_mint: InterfaceAccount<'info, Mint>,
+    pub token_a_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub token_b_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         init,
@@ -58,7 +58,7 @@ pub struct InitializePool<'info> {
         seeds = [b"vault_a", pool.key().as_ref()],
         bump,
     )]
-    pub token_a_vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_a_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         init,
@@ -69,7 +69,7 @@ pub struct InitializePool<'info> {
         seeds = [b"vault_b", pool.key().as_ref()],
         bump,
     )]
-    pub token_b_vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_b_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         init,
@@ -80,7 +80,7 @@ pub struct InitializePool<'info> {
         seeds = [LP_MINT_SEED, pool.key().as_ref()],
         bump,
     )]
-    pub lp_mint: InterfaceAccount<'info, Mint>,
+    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
