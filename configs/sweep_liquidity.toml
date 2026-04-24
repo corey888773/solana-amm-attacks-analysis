@@ -16,6 +16,8 @@ direction = "a_to_b"
 base_fee_lamports = 5000
 priority_fee_lamports = 100_000
 jito_tip_lamports = 1_000_000
+# Price of 1 SOL in input-token units (see default.toml for explanation).
+input_token_per_sol = 150_000_000.0
 
 [attacker]
 strategy = "optimal"
