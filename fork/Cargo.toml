@@ -1,0 +1,40 @@
+[package]
+name = "fork"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "snapshot"
+path = "src/bin/snapshot.rs"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+borsh = "1.5"
+bs58 = "0.5"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+solana-sdk = "3"
+solana-pubkey = "3"
+solana-account = "3"
+solana-client = "3"
+solana-account-decoder = "3"
+solana-commitment-config = "3"
+
+litesvm = "0.11"
+
+# Raydium CPMM (mainnet program: CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C)
+# decoder ships hand-rolled deser, avoids anchor-lang 0.32 vs workspace 1.0 mismatch
+carbon-raydium-cpmm-decoder = "0.12"
+carbon-core = "0.12"
+
+[dev-dependencies]
+solana-keypair = "3.1.2"
+solana-signer = "3"
+solana-transaction = "3"
+solana-message = "3"
+solana-system-interface = "2"
+tempfile = "3"
