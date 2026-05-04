@@ -7,7 +7,20 @@ pub struct SimulationRecord {
     // Pool params
     pub pool_reserve_a: u64,
     pub pool_reserve_b: u64,
+    /// Lossy basis-points view of the trade fee, kept for backward
+    /// compatibility with the synthetic-sweep notebooks. For real-pool
+    /// replays prefer `trade_fee_rate` / `creator_fee_rate`.
     pub pool_fee_bps: u16,
+    /// Trade-fee numerator (over `fee_denominator`). For synthetic sweeps,
+    /// `pool_fee_bps` (denom 1e4); for real-pool replay, the on-chain CPMM
+    /// trade fee numerator (denom 1e6).
+    pub trade_fee_rate: u64,
+    /// Creator-fee numerator (over `fee_denominator`). 0 for synthetic
+    /// sweeps; copied from the snapshot's `AmmConfig` for real pools.
+    pub creator_fee_rate: u64,
+    /// Denominator for `trade_fee_rate` and `creator_fee_rate`. 10_000 for
+    /// synthetic sweeps, 1_000_000 for Raydium CPMM real-pool replay.
+    pub fee_denominator: u64,
 
     // Victim params
     pub victim_amount: u64,
@@ -37,6 +50,8 @@ pub struct SimulationRecord {
     pub tx_cost_total: u64,
     pub iteration: u32,
     pub source: String,
+    /// Snapshot label when the run replays a real pool, "synthetic" otherwise.
+    pub pool_label: String,
 }
 
 /// Write a batch of records to CSV.
