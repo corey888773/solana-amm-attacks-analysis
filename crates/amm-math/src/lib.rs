@@ -1,5 +1,7 @@
 pub mod constant_product;
+pub mod multi_fee;
 pub mod sandwich;
+pub mod sandwich_numerical;
 pub mod types;
 
 /// 1 basis point = 0.01%. 10_000 bps = 100%.
