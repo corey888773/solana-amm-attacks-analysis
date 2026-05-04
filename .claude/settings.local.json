@@ -13,7 +13,9 @@
       "Bash(cargo-build-sbf --version)",
       "Bash(solana --version)",
       "Bash(git reset *)",
-      "Bash(cargo-build-sbf --manifest-path programs/amm/Cargo.toml)"
+      "Bash(cargo-build-sbf --manifest-path programs/amm/Cargo.toml)",
+      "Bash(rtk grep *)",
+      "Bash(rtk ls *)"
     ]
   }
 }
