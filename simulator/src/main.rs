@@ -1,6 +1,7 @@
 mod config;
 mod engine;
 mod output;
+mod real_pool;
 mod scenarios;
 
 use clap::Parser;

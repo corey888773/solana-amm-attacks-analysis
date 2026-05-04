@@ -14,6 +14,17 @@ pub struct SimConfig {
     pub attacker: AttackerParams,
     #[serde(default)]
     pub sweep: Option<SweepParams>,
+    #[serde(default)]
+    pub real_pool: Option<RealPoolParams>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RealPoolParams {
+    /// Path (relative to current working dir, typically the workspace root)
+    /// to the snapshot directory containing `manifest.json` plus the cached
+    /// vault and AmmConfig account JSONs.
+    pub manifest: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
