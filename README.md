@@ -56,6 +56,9 @@ flowchart LR
     sim -->|writes rows| csv
     csv -.->|plots and stats| nb
 
+    %% Link styling (hand-drawn-ish)
+    linkStyle default stroke:#8B6F47,stroke-width:2px,opacity:0.85,stroke-dasharray:4 3;
+
     classDef offchain fill:#FFE4B5,stroke:#D97757,stroke-width:2px,color:#3E3A34;
     classDef shared fill:#F5EBD6,stroke:#8B6F47,stroke-width:2px,color:#3E3A34;
     classDef onchain fill:#C8DBC0,stroke:#5F7A5A,stroke-width:2px,color:#2E3E2A;
@@ -95,6 +98,9 @@ flowchart LR
     s0 -->|"① attacker frontruns<br/>dA_f of A → B"| s1
     s1 -->|"② victim swaps<br/>dA_v at degraded price"| s2
     s2 -->|"③ attacker backruns<br/>dB of B → A"| s3
+
+    %% Link styling (hand-drawn-ish)
+    linkStyle default stroke:#8B6F47,stroke-width:2px,opacity:0.85,stroke-dasharray:4 3;
 
     classDef pool fill:#FFE4B5,stroke:#D97757,stroke-width:2px,color:#3E3A34;
 ```
