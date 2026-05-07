@@ -6,11 +6,10 @@ Praca magisterska - Politechnika Krakowska, Wydział Informatyki i Telekomunikac
 
 ## What this project does
 
-A Rust-based simulator for studying MEV sandwich attacks on Solana Automated
-Market Makers. Pure off-chain math (`amm-math`) drives parameterized scenario
-sweeps, and the same math crate backs an on-chain Anchor program so that
-simulation results can be cross-validated against real program execution
-inside LiteSVM (planned).
+A Rust-based research workspace for studying MEV sandwich attacks on Solana
+Automated Market Makers. Pure off-chain math (`amm-math`) drives parameterized
+scenario sweeps, the same math backs a custom Anchor AMM program, and LiteSVM
+tests validate both the custom program and cloned Raydium CPMM mainnet pools.
 
 ## Architecture
 
@@ -32,29 +31,33 @@ flowchart LR
     subgraph OFFCHAIN["Off-chain Rust workspace"]
         cfg["configs/*.toml"]:::offchain
         sim["simulator<br/>mev-sim"]:::offchain
+        fork["fork<br/>snapshot + replay tooling"]:::offchain
     end
 
     subgraph SHARED["Shared crate"]
-        math["amm-math<br/>single source of truth"]:::shared
+        math["amm-math<br/>single source of truth<br/>CPMM + sandwich math"]:::shared
     end
 
     subgraph ONCHAIN["On-chain Solana Anchor"]
         prog["programs/amm<br/>amm.so"]:::onchain
-        svm["LiteSVM<br/>&#40;planned&#41;"]:::planned
+        ray["Raydium CPMM<br/>mainnet program dump"]:::onchain
+        svm["LiteSVM<br/>in-process validation"]:::onchain
     end
 
     subgraph OUTPUT["Output and Analysis"]
         csv["results/*.csv"]:::output
-        nb["Jupyter notebook<br/>&#40;planned&#41;"]:::planned
+        nb["notebooks/*.ipynb<br/>plots + stats"]:::output
     end
 
     cfg -->|figment loads| sim
     sim -->|calls| math
     math -->|links into| prog
-    sim -.->|planned: in-process VM| svm
+    fork -->|caches accounts| sim
+    fork -->|loads cloned pool| svm
     svm -->|invokes program| prog
+    svm -->|invokes program| ray
     sim -->|writes rows| csv
-    csv -.->|plots and stats| nb
+    csv -->|plots and stats| nb
 
     %% Link styling (hand-drawn-ish)
     linkStyle default stroke:#8B6F47,stroke-width:2px,opacity:0.85,stroke-dasharray:4 3;
@@ -63,13 +66,16 @@ flowchart LR
     classDef shared fill:#F5EBD6,stroke:#8B6F47,stroke-width:2px,color:#3E3A34;
     classDef onchain fill:#C8DBC0,stroke:#5F7A5A,stroke-width:2px,color:#2E3E2A;
     classDef output fill:#D8CCE8,stroke:#6B5B95,stroke-width:2px,color:#2E2A3E;
-    classDef planned fill:#F0E8D8,stroke:#999,stroke-width:2px,stroke-dasharray:6 4,color:#666;
 ```
 
 The `amm-math` crate is the single source of truth for swap math. The
 off-chain simulator and the on-chain Anchor program link the same
-functions, so on-chain validation reduces to comparing pool state after
-executing the same trade sequence in both environments.
+functions for the custom AMM path, so on-chain validation reduces to comparing
+pool state after executing the same trade sequence in both environments.
+
+For real-pool experiments, `fork` snapshots Raydium CPMM accounts from
+mainnet, loads them into LiteSVM with the dumped Raydium program, and the
+simulator can reuse the cached reserves and fee config for scenario sweeps.
 
 ## Sandwich attack data flow
 
@@ -110,29 +116,38 @@ flowchart LR
 - `victim_slippage = price_2 / price_0 − 1`
 - swap aborts if `victim_slippage > slippage_tolerance_bps`
 
-Each scenario records: attacker profit/loss, victim slippage, pool price
-drift, gas and Jito tip costs, and whether the victim's slippage
-tolerance aborted the trade.
+Each valid scenario records a CSV row. `attack_status` distinguishes an
+executed attack from `no_profitable_attack` or `no_attack_configured`; no-attack
+rows keep `frontrun_amount = 0`, zero attacker/victim loss metrics, and the
+configured `tx_cost_total` for traceability.
 
 ## Directory structure
 
 ```
 magisterka/
-├── Cargo.toml              # workspace manifest (3 members)
+├── Cargo.toml              # workspace manifest (4 members)
 ├── crates/
-│   └── amm-math/           # pure math: constant product + sandwich optimizer
-│       └── src/{lib,constant_product,sandwich,types}.rs
+│   └── amm-math/           # pure math: CPMM, multi-fee, sandwich optimizers
+│       └── src/{lib,types}.rs
+│       └── src/cpmm/{simple_fee,multi_fee}.rs
+│       └── src/sandwich/{closed_form,numerical}.rs
 ├── programs/
 │   └── amm/                # on-chain Anchor program (cdylib -> amm.so)
 │       └── src/{lib,constants,errors}.rs
 │       └── src/instructions/, src/state/
 ├── simulator/              # CLI binary `mev-sim`
-│   └── src/{main,config,engine,scenarios,output}.rs
-│   └── src/strategies/
+│   └── src/{main,config,engine,real_pool,scenarios,output}.rs
+├── fork/                   # Raydium CPMM snapshot + LiteSVM replay tooling
+│   └── src/{account_fetcher,cheat,instructions,pool,
+│            programs,state_loader}.rs
+│   └── src/bin/snapshot.rs
 ├── configs/                # TOML inputs
 │   ├── default.toml
-│   └── sweep_liquidity.toml
-└── results/                # generated CSV (gitignored)
+│   ├── sweep_liquidity.toml
+│   └── sweep_real_pool.toml
+├── notebooks/              # Jupyter analysis notebooks (uv project)
+├── fork/cache/             # generated mainnet account/program cache (gitignored)
+└── results/                # generated CSV outputs (gitignored)
 ```
 
 ## Usage
@@ -141,14 +156,17 @@ magisterka/
 # Build the workspace (host targets)
 cargo build
 
-# Run tests (includes amm-math proptest invariants)
-cargo test
+# Run tests (includes amm-math proptests and LiteSVM integration tests)
+cargo test --workspace --all-targets
 
 # Single scenario from default config
 cargo run --bin mev-sim -- -c configs/default.toml
 
 # Parameter sweep, parallelized with rayon
 cargo run --bin mev-sim -- -c configs/sweep_liquidity.toml --parallel
+
+# Real-pool sweep using cached Raydium CPMM WSOL/SURGE snapshot
+cargo run --bin mev-sim -- -c configs/sweep_real_pool.toml --parallel
 
 # Custom output path
 cargo run --bin mev-sim -- -c configs/default.toml -o results/my_test.csv
@@ -157,16 +175,47 @@ cargo run --bin mev-sim -- -c configs/default.toml -o results/my_test.csv
 cargo-build-sbf --manifest-path programs/amm/Cargo.toml
 ```
 
-The resulting `amm.so` will be loaded into LiteSVM by the simulator for
-on-chain validation once that integration lands (TODO; currently blocked
-on a `solana-keypair` / `five8` upstream bug, see `programs/amm/Cargo.toml`).
+Simulator attacker strategies are explicit: `closed_form` uses the Zhou
+closed-form baseline, `numerical` uses the fee-aware optimizer, and `fixed`
+uses `fixed_frontrun_amount`. Real-pool configs fail fast if the snapshot
+cannot be loaded unless `real_pool.allow_synthetic_fallback = true` is set.
+
+Raydium CPMM snapshot/replay tooling:
+
+```bash
+# Snapshot a Raydium CPMM pool into fork/cache/pools/<label>/
+cargo run -p fork --bin snapshot -- \
+  --pool BScfGKZf9YDfpL11hZQnCQPskPrdeyFcvCjSA5qupEH5 \
+  --label wsol_surge \
+  --rpc https://api.mainnet-beta.solana.com
+
+# Dump the Raydium CPMM program used by fork LiteSVM tests
+solana program dump \
+  CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C \
+  fork/cache/programs/raydium_cpmm.so \
+  --url mainnet-beta
+```
+
+Notebook analysis:
+
+```bash
+cd notebooks
+uv sync
+uv run jupyter lab
+```
+
+Some fork tests skip gracefully when `fork/cache/` fixtures or the Raydium
+program dump are absent. The checked-in Rust code still builds and the custom
+AMM LiteSVM test uses `target/deploy/amm.so`.
 
 ## Tech stack
 
-- Rust 2021, Cargo workspace (3 crates)
-- Anchor 1.0.1 (`anchor-lang`, `anchor-spl`) for the on-chain program
+- Rust 2021, Cargo workspace (4 crates)
+- Anchor 1.0.1 (`anchor-lang`, `anchor-spl`) for the custom on-chain program
 - Solana SDK 3.x (transitive, via Anchor)
-- LiteSVM — in-process Solana VM for on-chain validation (planned)
+- LiteSVM 0.11 — in-process Solana VM for custom AMM and Raydium CPMM replay
 - CLI stack: `clap` (args), `figment` (TOML config), `rayon` (parallel
   sweeps), `csv` + `serde` (output), `itertools` (combinatorics)
+- Raydium CPMM decoding: `carbon-raydium-cpmm-decoder` 0.12
 - `proptest` for math-invariant testing in `amm-math`
+- Python notebooks via `uv`, Jupyter, pandas, matplotlib, seaborn

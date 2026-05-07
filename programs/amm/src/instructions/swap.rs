@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{
-    self, Mint, TokenAccount, TokenInterface, TransferChecked,
-};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 
 use crate::constants::*;
 use crate::errors::AmmError;
@@ -23,14 +21,20 @@ pub fn handle_swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> R
     // Delegate math to amm-math (shared crate)
     // Source: Uniswap V2 whitepaper (Adams et al., 2020), Section 3.1.1
     let result = amm_math::constant_product::compute_swap(
-        amount_in,
-        reserve_in,
-        reserve_out,
+        amount_in as u128,
+        reserve_in as u128,
+        reserve_out as u128,
         pool.fee_bps,
     )
     .ok_or(AmmError::MathOverflow)?;
 
-    require!(result.amount_out >= min_amount_out, AmmError::SlippageExceeded);
+    let amount_out = u64::try_from(result.amount_out).map_err(|_| AmmError::MathOverflow)?;
+    let new_reserve_in =
+        u64::try_from(result.new_reserve_in).map_err(|_| AmmError::MathOverflow)?;
+    let new_reserve_out =
+        u64::try_from(result.new_reserve_out).map_err(|_| AmmError::MathOverflow)?;
+
+    require!(amount_out >= min_amount_out, AmmError::SlippageExceeded);
 
     let authority_seeds: &[&[u8]] = &[
         POOL_AUTHORITY_SEED,
@@ -62,15 +66,19 @@ pub fn handle_swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> R
         },
         signer_seeds,
     );
-    token_interface::transfer_checked(transfer_out_ctx, result.amount_out, ctx.accounts.mint_out.decimals)?;
+    token_interface::transfer_checked(
+        transfer_out_ctx,
+        amount_out,
+        ctx.accounts.mint_out.decimals,
+    )?;
 
     // Update pool reserves
     if ctx.accounts.user_token_in.mint == pool.token_a_mint {
-        pool.reserve_a = result.new_reserve_in;
-        pool.reserve_b = result.new_reserve_out;
+        pool.reserve_a = new_reserve_in;
+        pool.reserve_b = new_reserve_out;
     } else {
-        pool.reserve_b = result.new_reserve_in;
-        pool.reserve_a = result.new_reserve_out;
+        pool.reserve_b = new_reserve_in;
+        pool.reserve_a = new_reserve_out;
     }
     pool.k_last = (pool.reserve_a as u128)
         .checked_mul(pool.reserve_b as u128)

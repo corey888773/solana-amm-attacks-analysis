@@ -136,13 +136,8 @@ pub enum LoadError {
     Io(std::io::Error, PathBuf),
     Json(serde_json::Error, PathBuf),
     Base64(base64::DecodeError, PathBuf),
-    VaultTooShort {
-        path: PathBuf,
-        len: usize,
-    },
-    AmmConfigDeser {
-        path: PathBuf,
-    },
+    VaultTooShort { path: PathBuf, len: usize },
+    AmmConfigDeser { path: PathBuf },
 }
 
 impl std::fmt::Display for LoadError {
@@ -193,10 +188,8 @@ pub fn load_real_pool(snapshot_dir: &Path) -> Result<RealPool, LoadError> {
     let manifest_path = snapshot_dir.join("manifest.json");
     let m: PoolManifestJson = read_json(&manifest_path)?;
 
-    let reserve_a =
-        read_vault_amount(&snapshot_dir.join(format!("{}.json", m.vault_a)))? as u128;
-    let reserve_b =
-        read_vault_amount(&snapshot_dir.join(format!("{}.json", m.vault_b)))? as u128;
+    let reserve_a = read_vault_amount(&snapshot_dir.join(format!("{}.json", m.vault_a)))? as u128;
+    let reserve_b = read_vault_amount(&snapshot_dir.join(format!("{}.json", m.vault_b)))? as u128;
 
     let cfg_path = snapshot_dir.join(format!("{}.json", m.amm_config));
     let cfg_acc: CachedAccountJson = read_json(&cfg_path)?;
@@ -245,8 +238,7 @@ mod tests {
         assert_eq!(p.trade_fee_rate, 2500, "expected 0.25% trade fee");
         assert_eq!(p.creator_fee_rate, 500, "expected 0.05% creator fee");
         assert_eq!(
-            p.mint_a,
-            "So11111111111111111111111111111111111111112",
+            p.mint_a, "So11111111111111111111111111111111111111112",
             "mint_a should be WSOL"
         );
         assert!(p.snapshot_slot > 0, "snapshot_slot > 0");
@@ -274,13 +266,23 @@ mod tests {
         for (r_in, r_out, amt) in [
             (1_000_000u128, 1_000_000u128, 10_000u128),
             (10_000_000u128, 5_000_000u128, 250_000u128),
-            (2_106_428_125_817u128, 1_756_035_099_685_335u128, 1_000_000_000u128),
+            (
+                2_106_428_125_817u128,
+                1_756_035_099_685_335u128,
+                1_000_000_000u128,
+            ),
         ] {
-            let multi = compute_swap_multi_fee(r_in, r_out, amt, &cfg);
-            let legacy = compute_swap(amt as u64, r_in as u64, r_out as u64, 30)
+            let multi = compute_swap_multi_fee(r_in, r_out, amt, &cfg)
+                .expect("multi-fee swap")
+                .amount_out;
+            let legacy = compute_swap(amt, r_in, r_out, 30)
                 .expect("legacy swap")
-                .amount_out as u128;
-            let diff = if multi > legacy { multi - legacy } else { legacy - multi };
+                .amount_out;
+            let diff = if multi > legacy {
+                multi - legacy
+            } else {
+                legacy - multi
+            };
             assert!(diff <= 1, "multi={multi} legacy={legacy}");
         }
     }
@@ -295,15 +297,19 @@ mod tests {
         let r_in = 1_000_000u128;
         let r_out = 1_000_000u128;
         let amt = 10_000u128;
-        let a = compute_swap_multi_fee(r_in, r_out, amt, &bps);
-        let b = compute_swap_multi_fee(r_in, r_out, amt, &micro);
+        let a = compute_swap_multi_fee(r_in, r_out, amt, &bps)
+            .expect("bps swap")
+            .amount_out;
+        let b = compute_swap_multi_fee(r_in, r_out, amt, &micro)
+            .expect("micro swap")
+            .amount_out;
         let diff = if a > b { a - b } else { b - a };
         assert!(diff <= 1);
     }
 
     /// Regime B: real-pool replay through the new path. Pinned against the
     /// `replays_swap_e2e_smoke_test_on_input` deterministic value in
-    /// `crates/amm-math/src/multi_fee.rs` (trade=2500/1e6 + creator=500/1e6
+    /// `crates/amm-math/src/cpmm/multi_fee.rs` (trade=2500/1e6 + creator=500/1e6
     /// on input). Tolerance: equality, since the math is deterministic.
     #[test]
     fn real_pool_regime_uses_creator_fee_on_input() {
@@ -327,7 +333,9 @@ mod tests {
         assert_eq!(cfg.creator_fee_rate, 500);
         assert!(matches!(cfg.creator_fee_mode, CreatorFeeMode::OnInput));
 
-        let out = compute_swap_multi_fee(rp.reserve_a, rp.reserve_b, 1_000_000_000u128, &cfg);
+        let out = compute_swap_multi_fee(rp.reserve_a, rp.reserve_b, 1_000_000_000u128, &cfg)
+            .expect("real-pool swap")
+            .amount_out;
         assert_eq!(out, 830_761_184_793u128);
     }
 

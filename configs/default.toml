@@ -23,4 +23,5 @@ jito_tip_lamports = 1_000_000   # ~0.001 SOL Jito tip
 input_token_per_sol = 150_000_000.0
 
 [attacker]
-strategy = "optimal"
+# Options: "closed_form", "numerical", "fixed".
+strategy = "closed_form"

@@ -16,6 +16,9 @@
 //! never short-changed by integer truncation. The output amount uses the
 //! standard floor division of the CPMM formula.
 
+use crate::types::SwapResult;
+use crate::BPS_DENOMINATOR_F64;
+
 /// Where the creator fee is taken from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatorFeeMode {
@@ -58,18 +61,21 @@ impl MultiFeeConfig {
 /// Ceiling division: `ceil(a / b)`. Used for fee numerators so the pool is
 /// never short by 1 unit due to integer truncation.
 #[inline]
-fn ceil_div_u128(a: u128, b: u128) -> u128 {
+fn ceil_div_u128(a: u128, b: u128) -> Option<u128> {
     if b == 0 {
-        return 0;
+        return None;
     }
-    (a + b - 1) / b
+    if a == 0 {
+        return Some(0);
+    }
+    Some(((a - 1) / b) + 1)
 }
 
-/// Compute output of a CPMM swap with multi-component fees.
+/// Compute a CPMM swap with multi-component fees.
 ///
-/// Returns `0` for any degenerate input (zero reserves/amount, fee >= 100%,
-/// fees that exceed the input). Matches the on-chain Raydium CPMM math to
-/// within a single unit of integer rounding.
+/// Returns `None` for any degenerate input (zero reserves/amount, fee >= 100%,
+/// fees that exceed the input, zero output, output >= reserve). Matches the
+/// on-chain Raydium CPMM math to within a single unit of integer rounding.
 ///
 /// # Formula
 ///
@@ -95,72 +101,89 @@ pub fn compute_swap_multi_fee(
     reserve_out: u128,
     amount_in: u128,
     cfg: &MultiFeeConfig,
-) -> u128 {
+) -> Option<SwapResult> {
     if amount_in == 0 || reserve_in == 0 || reserve_out == 0 {
-        return 0;
+        return None;
     }
     let denom = cfg.fee_denominator as u128;
     if denom == 0 {
-        return 0;
+        return None;
     }
     let trade = cfg.trade_fee_rate as u128;
     let creator = cfg.creator_fee_rate as u128;
     if trade >= denom || trade.saturating_add(creator) >= denom {
-        return 0;
+        return None;
     }
 
-    let trade_fee = ceil_div_u128(amount_in.saturating_mul(trade), denom);
+    let trade_fee = ceil_div_u128(amount_in.checked_mul(trade)?, denom)?;
 
-    let (dx, creator_fee_on_output) = match cfg.creator_fee_mode {
+    let (dx, creator_fee, creator_fee_on_output) = match cfg.creator_fee_mode {
         CreatorFeeMode::Disabled => {
-            let Some(dx) = amount_in.checked_sub(trade_fee) else {
-                return 0;
-            };
-            (dx, 0u128)
+            let dx = amount_in.checked_sub(trade_fee)?;
+            (dx, 0u128, false)
         }
         CreatorFeeMode::OnInput => {
-            let creator_fee = ceil_div_u128(amount_in.saturating_mul(creator), denom);
-            let Some(after_trade) = amount_in.checked_sub(trade_fee) else {
-                return 0;
-            };
-            let Some(dx) = after_trade.checked_sub(creator_fee) else {
-                return 0;
-            };
-            (dx, 0u128)
+            let creator_fee = ceil_div_u128(amount_in.checked_mul(creator)?, denom)?;
+            let after_trade = amount_in.checked_sub(trade_fee)?;
+            let dx = after_trade.checked_sub(creator_fee)?;
+            (dx, creator_fee, false)
         }
         CreatorFeeMode::OnOutput => {
-            let Some(dx) = amount_in.checked_sub(trade_fee) else {
-                return 0;
-            };
-            (dx, creator)
+            let dx = amount_in.checked_sub(trade_fee)?;
+            (dx, 0u128, true)
         }
     };
 
     if dx == 0 {
-        return 0;
+        return None;
     }
 
     // CPMM: dy = floor(y * dx / (x + dx)). Source: Uniswap V2 whitepaper §3.1.1.
-    let numerator = reserve_out.saturating_mul(dx);
-    let denominator = reserve_in.saturating_add(dx);
-    if denominator == 0 {
-        return 0;
-    }
+    let numerator = reserve_out.checked_mul(dx)?;
+    let denominator = reserve_in.checked_add(dx)?;
     let gross_out = numerator / denominator;
 
-    if creator_fee_on_output == 0 {
-        if gross_out >= reserve_out {
-            return 0;
-        }
-        return gross_out;
+    let (amount_out, creator_fee) = if creator_fee_on_output {
+        let creator_fee = ceil_div_u128(gross_out.checked_mul(creator)?, denom)?;
+        (gross_out.checked_sub(creator_fee)?, creator_fee)
+    } else {
+        (gross_out, creator_fee)
+    };
+
+    if amount_out == 0 || amount_out >= reserve_out {
+        return None;
     }
 
-    let creator_fee = ceil_div_u128(gross_out.saturating_mul(creator_fee_on_output), denom);
-    let net_out = gross_out.saturating_sub(creator_fee);
-    if net_out >= reserve_out {
-        return 0;
-    }
-    net_out
+    let new_reserve_in = reserve_in.checked_add(amount_in)?;
+    let new_reserve_out = reserve_out.checked_sub(amount_out)?;
+    let price_before = reserve_out as f64 / reserve_in as f64;
+    let price_after = new_reserve_out as f64 / new_reserve_in as f64;
+    let price_impact_bps = ((1.0 - price_after / price_before) * BPS_DENOMINATOR_F64) as u64;
+
+    Some(SwapResult {
+        amount_out,
+        fee_amount: trade_fee.checked_add(creator_fee)?,
+        trade_fee,
+        creator_fee,
+        price_before,
+        price_after,
+        price_impact_bps,
+        new_reserve_in,
+        new_reserve_out,
+    })
+}
+
+/// Compatibility/helper API for hot loops that only need the output amount.
+/// Returns `0` for degenerate swaps.
+pub fn compute_swap_multi_fee_amount_out(
+    reserve_in: u128,
+    reserve_out: u128,
+    amount_in: u128,
+    cfg: &MultiFeeConfig,
+) -> u128 {
+    compute_swap_multi_fee(reserve_in, reserve_out, amount_in, cfg)
+        .map(|r| r.amount_out)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -177,14 +200,14 @@ mod tests {
             fee_denominator: 1_000_000,
             creator_fee_mode: CreatorFeeMode::OnInput,
         };
-        assert_eq!(compute_swap_multi_fee(1_000_000, 1_000_000, 0, &cfg), 0);
+        assert!(compute_swap_multi_fee(1_000_000, 1_000_000, 0, &cfg).is_none());
     }
 
     #[test]
     fn zero_reserves_zero_output() {
         let cfg = MultiFeeConfig::single(2500, 1_000_000);
-        assert_eq!(compute_swap_multi_fee(0, 1_000_000, 100, &cfg), 0);
-        assert_eq!(compute_swap_multi_fee(1_000_000, 0, 100, &cfg), 0);
+        assert!(compute_swap_multi_fee(0, 1_000_000, 100, &cfg).is_none());
+        assert!(compute_swap_multi_fee(1_000_000, 0, 100, &cfg).is_none());
     }
 
     /// When `creator_fee_rate = 0`, the multi-fee variant must agree with
@@ -199,10 +222,12 @@ mod tests {
         let reserve_in = 1_000_000u128;
         let reserve_out = 1_000_000u128;
 
-        let multi = compute_swap_multi_fee(reserve_in, reserve_out, amount_in, &cfg);
-        let single = compute_swap(amount_in as u64, reserve_in as u64, reserve_out as u64, 30)
+        let multi = compute_swap_multi_fee(reserve_in, reserve_out, amount_in, &cfg)
             .unwrap()
-            .amount_out as u128;
+            .amount_out;
+        let single = compute_swap(amount_in, reserve_in, reserve_out, 30)
+            .unwrap()
+            .amount_out;
 
         // Allow 1-unit slack: ceil-vs-floor on the fee deduction can shift the
         // output by at most one wei.
@@ -226,10 +251,17 @@ mod tests {
             creator_fee_mode: CreatorFeeMode::OnOutput,
             ..on_in
         };
-        let a = compute_swap_multi_fee(10_000_000, 10_000_000, 100_000, &on_in);
-        let b = compute_swap_multi_fee(10_000_000, 10_000_000, 100_000, &on_out);
+        let a = compute_swap_multi_fee(10_000_000, 10_000_000, 100_000, &on_in)
+            .unwrap()
+            .amount_out;
+        let b = compute_swap_multi_fee(10_000_000, 10_000_000, 100_000, &on_out)
+            .unwrap()
+            .amount_out;
         assert!(a > 0 && b > 0);
-        assert_ne!(a, b, "on-input and on-output should produce different outputs");
+        assert_ne!(
+            a, b,
+            "on-input and on-output should produce different outputs"
+        );
     }
 
     #[test]
@@ -259,7 +291,9 @@ mod tests {
             1_756_035_099_685_335u128,
             1_000_000_000u128,
             &cfg,
-        );
+        )
+        .unwrap()
+        .amount_out;
         assert!(out > 0);
     }
 
@@ -283,7 +317,9 @@ mod tests {
             1_756_035_099_685_335u128,
             1_000_000_000u128,
             &cfg,
-        );
+        )
+        .unwrap()
+        .amount_out;
         // Deterministic output (trade=25 bps + creator=5 bps on input).
         assert_eq!(out, 830_761_184_793u128);
     }
@@ -297,7 +333,9 @@ mod tests {
             1_756_035_099_685_335u128,
             1_000_000_000u128,
             &cfg,
-        );
+        )
+        .unwrap()
+        .amount_out;
         // Within 1e6 units of the on-chain 831_177_135_140 (Token-2022
         // transfer-fee extension adds an extra rounding step on-chain).
         let on_chain_ref = 831_177_135_140u128;
@@ -306,7 +344,10 @@ mod tests {
         } else {
             on_chain_ref - out
         };
-        assert!(diff <= 1_000_000, "got {out} vs on-chain {on_chain_ref}, diff={diff}");
+        assert!(
+            diff <= 1_000_000,
+            "got {out} vs on-chain {on_chain_ref}, diff={diff}"
+        );
     }
 
     #[test]
@@ -317,7 +358,7 @@ mod tests {
             fee_denominator: 1_000_000,
             creator_fee_mode: CreatorFeeMode::Disabled,
         };
-        assert_eq!(compute_swap_multi_fee(1_000_000, 1_000_000, 100, &cfg), 0);
+        assert!(compute_swap_multi_fee(1_000_000, 1_000_000, 100, &cfg).is_none());
     }
 
     /// k-invariant check: pool's accounting must not lose value. Reserves
@@ -333,10 +374,12 @@ mod tests {
         let r_in = 1_000_000u128;
         let r_out = 1_000_000u128;
         let amount_in = 50_000u128;
-        let out = compute_swap_multi_fee(r_in, r_out, amount_in, &cfg);
+        let out = compute_swap_multi_fee(r_in, r_out, amount_in, &cfg)
+            .unwrap()
+            .amount_out;
         // Effective dx that hit the curve = amount_in minus both fees (rounded up).
-        let trade_fee = ceil_div_u128(amount_in * 2500, 1_000_000);
-        let creator_fee = ceil_div_u128(amount_in * 500, 1_000_000);
+        let trade_fee = ceil_div_u128(amount_in * 2500, 1_000_000).unwrap();
+        let creator_fee = ceil_div_u128(amount_in * 500, 1_000_000).unwrap();
         let dx = amount_in - trade_fee - creator_fee;
         let new_in = r_in + dx;
         let new_out = r_out - out;
@@ -352,8 +395,12 @@ mod tests {
         let r_in = 1_000_000u128;
         let r_out = 1_000_000u128;
         let amount_in = 10_000u128;
-        let a = compute_swap_multi_fee(r_in, r_out, amount_in, &micro);
-        let b = compute_swap_multi_fee(r_in, r_out, amount_in, &bps);
+        let a = compute_swap_multi_fee(r_in, r_out, amount_in, &micro)
+            .unwrap()
+            .amount_out;
+        let b = compute_swap_multi_fee(r_in, r_out, amount_in, &bps)
+            .unwrap()
+            .amount_out;
         let diff = if a > b { a - b } else { b - a };
         assert!(diff <= 1);
     }

@@ -25,6 +25,11 @@ pub struct RealPoolParams {
     /// to the snapshot directory containing `manifest.json` plus the cached
     /// vault and AmmConfig account JSONs.
     pub manifest: String,
+    /// If true, a missing/broken snapshot falls back to synthetic `[pool]`
+    /// params. Default is fail-fast because real-pool sweeps should not
+    /// silently produce synthetic CSVs.
+    #[serde(default)]
+    pub allow_synthetic_fallback: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,7 +116,8 @@ pub struct AttackerParams {
 #[serde(rename_all = "snake_case")]
 pub enum AttackerStrategy {
     #[default]
-    Optimal,
+    ClosedForm,
+    Numerical,
     Fixed,
 }
 
@@ -143,7 +149,7 @@ fn default_direction() -> SwapDirection {
     SwapDirection::AToB
 }
 fn default_strategy() -> AttackerStrategy {
-    AttackerStrategy::Optimal
+    AttackerStrategy::ClosedForm
 }
 fn default_input_token_per_sol() -> f64 {
     1.0

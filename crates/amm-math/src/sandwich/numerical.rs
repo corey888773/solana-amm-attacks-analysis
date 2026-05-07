@@ -15,13 +15,70 @@
 //! This module performs a ternary search over the unimodal net-profit
 //! function `pi(V_f) = backrun_out(V_f, victim) - V_f - 2 * tx_cost`,
 //! evaluating each candidate by simulating the three swaps (frontrun /
-//! victim / backrun) using `compute_swap_multi_fee`. ~100 iterations are
-//! sufficient for u128 precision down to a single unit.
+//! victim / backrun) using the same `SwapResult` state transition as the
+//! simulator. ~100 iterations are sufficient for u128 precision down to a
+//! single unit.
 
 use crate::multi_fee::{compute_swap_multi_fee, MultiFeeConfig};
+use crate::types::SandwichResult;
+use crate::BPS_DENOMINATOR_F64;
 
-/// Simulate frontrun -> victim -> backrun and return the attacker's net
-/// profit in input-token units. `i128` to allow negative results.
+/// Simulate frontrun -> victim -> backrun for a chosen frontrun size.
+fn simulate_sandwich(
+    reserve_in: u128,
+    reserve_out: u128,
+    victim_amount_in: u128,
+    cfg: &MultiFeeConfig,
+    tx_cost: u128,
+    frontrun_in: u128,
+) -> Option<SandwichResult> {
+    if frontrun_in == 0 {
+        return None;
+    }
+
+    let fair_swap = compute_swap_multi_fee(reserve_in, reserve_out, victim_amount_in, cfg)?;
+
+    // Frontrun: attacker buys token_out.
+    let frontrun = compute_swap_multi_fee(reserve_in, reserve_out, frontrun_in, cfg)?;
+
+    // Victim swap (same direction).
+    let victim = compute_swap_multi_fee(
+        frontrun.new_reserve_in,
+        frontrun.new_reserve_out,
+        victim_amount_in,
+        cfg,
+    )?;
+
+    // Backrun: attacker sells everything bought in the frontrun. Direction flips.
+    let backrun = compute_swap_multi_fee(
+        victim.new_reserve_out,
+        victim.new_reserve_in,
+        frontrun.amount_out,
+        cfg,
+    )?;
+
+    let victim_loss = fair_swap.amount_out as i128 - victim.amount_out as i128;
+    let victim_extra_slippage_bps = if fair_swap.amount_out > 0 {
+        (victim_loss as f64 / fair_swap.amount_out as f64 * BPS_DENOMINATOR_F64) as u64
+    } else {
+        0
+    };
+    let gross_profit = backrun.amount_out as i128 - frontrun_in as i128;
+    let net_profit = gross_profit - 2 * tx_cost as i128;
+
+    Some(SandwichResult {
+        frontrun_amount: frontrun_in,
+        frontrun_output: frontrun.amount_out,
+        backrun_output: backrun.amount_out,
+        victim_extra_slippage_bps,
+        gross_profit,
+        net_profit,
+        is_profitable: net_profit > 0,
+    })
+}
+
+/// Simulate frontrun -> victim -> backrun and return net profit. `i128` allows
+/// negative results during optimizer search.
 fn net_profit(
     reserve_in: u128,
     reserve_out: u128,
@@ -33,31 +90,21 @@ fn net_profit(
     if frontrun_in == 0 {
         return 0i128 - 2 * tx_cost as i128;
     }
-    // Frontrun: attacker buys token_out.
-    let frontrun_out = compute_swap_multi_fee(reserve_in, reserve_out, frontrun_in, cfg);
-    if frontrun_out == 0 || frontrun_out >= reserve_out {
-        return i128::MIN / 2;
-    }
-    let r_in_1 = reserve_in + frontrun_in;
-    let r_out_1 = reserve_out - frontrun_out;
 
-    // Victim swap (same direction).
-    let victim_out = compute_swap_multi_fee(r_in_1, r_out_1, victim_amount_in, cfg);
-    if victim_out >= r_out_1 {
-        return i128::MIN / 2;
-    }
-    let r_in_2 = r_in_1 + victim_amount_in;
-    let r_out_2 = r_out_1 - victim_out;
-
-    // Backrun: attacker sells everything bought in the frontrun. Direction flips.
-    let backrun_out = compute_swap_multi_fee(r_out_2, r_in_2, frontrun_out, cfg);
-
-    backrun_out as i128 - frontrun_in as i128 - 2 * tx_cost as i128
+    simulate_sandwich(
+        reserve_in,
+        reserve_out,
+        victim_amount_in,
+        cfg,
+        tx_cost,
+        frontrun_in,
+    )
+    .map(|result| result.net_profit)
+    .unwrap_or(i128::MIN / 2)
 }
 
 /// Find the frontrun input `V_f` that maximizes net profit via ternary
-/// search. Returns the optimal `V_f` (in input-token units). Returns 0 when
-/// no profitable frontrun exists or when `victim_amount_in == 0`.
+/// search and return the full sandwich analysis.
 ///
 /// Search range is `[0, reserve_in]`. The upper cap reflects realistic MEV
 /// economics: a frontrun input larger than the pool's reserve_in has no
@@ -72,15 +119,15 @@ fn net_profit(
 /// Net profit is unimodal in `V_f` over `(0, reserve_in)` for `phi > 0`
 /// (concave with a single maximum), so ternary search converges in
 /// `O(log(range / precision))`.
-pub fn optimal_sandwich_numerical(
+pub fn compute_numerical_sandwich(
     reserve_in: u128,
     reserve_out: u128,
     victim_amount_in: u128,
     cfg: &MultiFeeConfig,
     tx_cost: u128,
-) -> u128 {
+) -> Option<SandwichResult> {
     if victim_amount_in == 0 || reserve_in == 0 || reserve_out == 0 {
-        return 0;
+        return None;
     }
 
     let mut lo: u128 = 0;
@@ -127,9 +174,17 @@ pub fn optimal_sandwich_numerical(
     }
 
     if best_p <= 0 {
-        return 0;
+        return None;
     }
-    best_v
+
+    simulate_sandwich(
+        reserve_in,
+        reserve_out,
+        victim_amount_in,
+        cfg,
+        tx_cost,
+        best_v,
+    )
 }
 
 #[cfg(test)]
@@ -141,10 +196,6 @@ mod tests {
         MultiFeeConfig::single(3000, 1_000_000) // 0.30 %
     }
 
-    fn cfg_zero() -> MultiFeeConfig {
-        MultiFeeConfig::single(0, 1_000_000)
-    }
-
     fn cfg_raydium() -> MultiFeeConfig {
         MultiFeeConfig {
             trade_fee_rate: 2500,
@@ -154,10 +205,37 @@ mod tests {
         }
     }
 
+    fn numerical_frontrun_amount(
+        reserve_in: u128,
+        reserve_out: u128,
+        victim_amount_in: u128,
+        cfg: &MultiFeeConfig,
+        tx_cost: u128,
+    ) -> u128 {
+        compute_numerical_sandwich(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost)
+            .map(|result| result.frontrun_amount)
+            .unwrap_or(0)
+    }
+
     #[test]
     fn zero_victim_yields_zero_frontrun() {
-        let v = optimal_sandwich_numerical(1_000_000, 1_000_000, 0, &cfg_30bps(), 0);
+        let v = numerical_frontrun_amount(1_000_000, 1_000_000, 0, &cfg_30bps(), 0);
         assert_eq!(v, 0);
+    }
+
+    #[test]
+    fn compute_numerical_sandwich_returns_full_result() {
+        let result = compute_numerical_sandwich(1_000_000, 1_000_000, 50_000, &cfg_30bps(), 0)
+            .expect("profitable numerical sandwich");
+
+        assert!(result.frontrun_amount > 0);
+        assert!(result.frontrun_output > 0);
+        assert!(result.backrun_output > 0);
+        assert!(result.victim_extra_slippage_bps > 0);
+        assert_eq!(
+            result.frontrun_amount,
+            numerical_frontrun_amount(1_000_000, 1_000_000, 50_000, &cfg_30bps(), 0)
+        );
     }
 
     /// On the integer-CPMM model the numerical optimizer should produce
@@ -180,15 +258,14 @@ mod tests {
         let v = 50_000u128;
         for trade_rate in &[0u64, 100, 1000, 3000, 10_000] {
             let cfg = MultiFeeConfig::single(*trade_rate, 1_000_000);
-            let v_f_num = optimal_sandwich_numerical(r_in, r_out, v, &cfg, 0);
+            let v_f_num = numerical_frontrun_amount(r_in, r_out, v, &cfg, 0);
             let p_num = net_profit(r_in, r_out, v, &cfg, 0, v_f_num);
 
             let phi = *trade_rate as f64 / 1_000_000.0;
             let one_minus_phi = (1.0 - phi).max(1e-9);
             let x = r_in as f64;
             let vf_f = v as f64;
-            let zhou =
-                ((x * vf_f) / ((x * (x + one_minus_phi * vf_f)).sqrt() + x)) as u128;
+            let zhou = ((x * vf_f) / ((x * (x + one_minus_phi * vf_f)).sqrt() + x)) as u128;
             let p_zhou = net_profit(r_in, r_out, v, &cfg, 0, zhou);
 
             assert!(
@@ -211,7 +288,7 @@ mod tests {
         let cfg = cfg_30bps();
         let tx_cost = 0u128;
 
-        let v_num = optimal_sandwich_numerical(r_in, r_out, victim, &cfg, tx_cost);
+        let v_num = numerical_frontrun_amount(r_in, r_out, victim, &cfg, tx_cost);
         let p_num = net_profit(r_in, r_out, victim, &cfg, tx_cost, v_num);
 
         // Zhou closed-form (phi = 0.003).
@@ -228,7 +305,10 @@ mod tests {
             "numerical p={p_num} should beat Zhou p={p_zhou}"
         );
         // And it should produce a non-negative profit (Zhou often goes negative here).
-        assert!(p_num >= 0, "numerical net profit should be >= 0, got {p_num}");
+        assert!(
+            p_num >= 0,
+            "numerical net profit should be >= 0, got {p_num}"
+        );
     }
 
     /// Convergence stability: running twice on identical inputs returns the
@@ -239,8 +319,8 @@ mod tests {
         let r_out = 1_756_035_099_685_335u128;
         let victim = 1_000_000_000u128;
         let cfg = cfg_raydium();
-        let a = optimal_sandwich_numerical(r_in, r_out, victim, &cfg, 5_000);
-        let b = optimal_sandwich_numerical(r_in, r_out, victim, &cfg, 5_000);
+        let a = numerical_frontrun_amount(r_in, r_out, victim, &cfg, 5_000);
+        let b = numerical_frontrun_amount(r_in, r_out, victim, &cfg, 5_000);
         let diff = if a > b { a - b } else { b - a };
         assert!(diff <= 1, "a={a} b={b}");
     }
@@ -260,15 +340,14 @@ mod tests {
         ];
         let mut beats = 0;
         for &(r_in, r_out, victim) in scenarios {
-            let v_num = optimal_sandwich_numerical(r_in, r_out, victim, &cfg, 0);
+            let v_num = numerical_frontrun_amount(r_in, r_out, victim, &cfg, 0);
             let p_num = net_profit(r_in, r_out, victim, &cfg, 0, v_num);
 
             let phi = 0.003f64;
             let one_minus_phi = 1.0 - phi;
             let x = r_in as f64;
             let v = victim as f64;
-            let v_zhou =
-                ((x * v) / ((x * (x + one_minus_phi * v)).sqrt() + x)) as u128;
+            let v_zhou = ((x * v) / ((x * (x + one_minus_phi * v)).sqrt() + x)) as u128;
             let p_zhou = net_profit(r_in, r_out, victim, &cfg, 0, v_zhou);
 
             assert!(
@@ -280,7 +359,10 @@ mod tests {
                 beats += 1;
             }
         }
-        assert!(beats >= 1, "numerical should strictly beat Zhou on >=1 scenario");
+        assert!(
+            beats >= 1,
+            "numerical should strictly beat Zhou on >=1 scenario"
+        );
     }
 
     /// High `tx_cost` should drive the optimizer to give up (return 0) when
@@ -295,32 +377,20 @@ mod tests {
         let victim = 50_000u128;
         let cfg = cfg_30bps();
         for &v_f in &[
-            1_000u128,
-            10_000,
-            24_695, // Zhou closed-form
-            100_000,
-            500_000,
-            1_000_000,
-            5_000_000,
-            10_000_000,
+            1_000u128, 10_000, 24_695, // Zhou closed-form
+            100_000, 500_000, 1_000_000, 5_000_000, 10_000_000,
         ] {
             let p = net_profit(r_in, r_out, victim, &cfg, 0, v_f);
             eprintln!("V_f = {v_f:>11} -> net = {p}");
         }
-        let v = optimal_sandwich_numerical(r_in, r_out, victim, &cfg, 0);
+        let v = numerical_frontrun_amount(r_in, r_out, victim, &cfg, 0);
         let p = net_profit(r_in, r_out, victim, &cfg, 0, v);
         eprintln!("optimizer chose V_f = {v}, net = {p}");
     }
 
     #[test]
     fn unprofitable_after_tx_cost_returns_zero() {
-        let v = optimal_sandwich_numerical(
-            1_000_000,
-            1_000_000,
-            10,
-            &cfg_30bps(),
-            1_000_000_000,
-        );
+        let v = numerical_frontrun_amount(1_000_000, 1_000_000, 10, &cfg_30bps(), 1_000_000_000);
         assert_eq!(v, 0);
     }
 
@@ -334,7 +404,7 @@ mod tests {
         let r_in = 1_000_000u128;
         let r_out = 1_000_000u128;
         let victim = 50_000u128;
-        let v = optimal_sandwich_numerical(r_in, r_out, victim, &cfg_30bps(), 0);
+        let v = numerical_frontrun_amount(r_in, r_out, victim, &cfg_30bps(), 0);
         assert!(
             v < r_in,
             "V_f={v} must be < reserve_in={r_in} (realistic MEV regime)"
@@ -344,8 +414,7 @@ mod tests {
         let one_minus_phi = 1.0 - phi;
         let x = r_in as f64;
         let vf_f = victim as f64;
-        let zhou =
-            ((x * vf_f) / ((x * (x + one_minus_phi * vf_f)).sqrt() + x)) as u128;
+        let zhou = ((x * vf_f) / ((x * (x + one_minus_phi * vf_f)).sqrt() + x)) as u128;
         let p_num = net_profit(r_in, r_out, victim, &cfg_30bps(), 0, v);
         let p_zhou = net_profit(r_in, r_out, victim, &cfg_30bps(), 0, zhou);
         assert!(p_num >= p_zhou);
@@ -372,8 +441,8 @@ mod tests {
             return;
         }
 
-        let manifest_bytes = std::fs::read(cache_root.join("manifest.json"))
-            .expect("read manifest");
+        let manifest_bytes =
+            std::fs::read(cache_root.join("manifest.json")).expect("read manifest");
         let manifest: serde_json::Value =
             serde_json::from_slice(&manifest_bytes).expect("parse manifest");
         let vault_a = manifest["vault_a"].as_str().unwrap();
@@ -381,10 +450,9 @@ mod tests {
         let amm_config = manifest["amm_config"].as_str().unwrap();
 
         let load_data = |pubkey: &str| -> Vec<u8> {
-            let bytes = std::fs::read(cache_root.join(format!("{pubkey}.json")))
-                .expect("read account");
-            let v: serde_json::Value =
-                serde_json::from_slice(&bytes).expect("parse account");
+            let bytes =
+                std::fs::read(cache_root.join(format!("{pubkey}.json"))).expect("read account");
+            let v: serde_json::Value = serde_json::from_slice(&bytes).expect("parse account");
             STANDARD
                 .decode(v["data_b64"].as_str().unwrap())
                 .expect("base64")
@@ -430,7 +498,7 @@ mod tests {
 
         // Victim sells 10 SOL on the WSOL -> token_b direction.
         let victim_in: u128 = 10 * 1_000_000_000;
-        let v_f = optimal_sandwich_numerical(reserve_a, reserve_b, victim_in, &cfg, 0);
+        let v_f = numerical_frontrun_amount(reserve_a, reserve_b, victim_in, &cfg, 0);
         let p = net_profit(reserve_a, reserve_b, victim_in, &cfg, 0, v_f);
 
         eprintln!(
