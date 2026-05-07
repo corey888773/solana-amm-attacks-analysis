@@ -167,18 +167,13 @@ struct PoolPdas {
 }
 
 fn derive_pool_pdas(program_id: &Pubkey, mint_a: &Pubkey, mint_b: &Pubkey) -> PoolPdas {
-    let (pool, _) = Pubkey::find_program_address(
-        &[POOL_SEED, mint_a.as_ref(), mint_b.as_ref()],
-        program_id,
-    );
+    let (pool, _) =
+        Pubkey::find_program_address(&[POOL_SEED, mint_a.as_ref(), mint_b.as_ref()], program_id);
     let (pool_authority, _) =
         Pubkey::find_program_address(&[POOL_AUTHORITY_SEED, pool.as_ref()], program_id);
-    let (lp_mint, _) =
-        Pubkey::find_program_address(&[LP_MINT_SEED, pool.as_ref()], program_id);
-    let (vault_a, _) =
-        Pubkey::find_program_address(&[VAULT_A_SEED, pool.as_ref()], program_id);
-    let (vault_b, _) =
-        Pubkey::find_program_address(&[VAULT_B_SEED, pool.as_ref()], program_id);
+    let (lp_mint, _) = Pubkey::find_program_address(&[LP_MINT_SEED, pool.as_ref()], program_id);
+    let (vault_a, _) = Pubkey::find_program_address(&[VAULT_A_SEED, pool.as_ref()], program_id);
+    let (vault_b, _) = Pubkey::find_program_address(&[VAULT_B_SEED, pool.as_ref()], program_id);
     PoolPdas {
         pool,
         pool_authority,
@@ -223,9 +218,11 @@ fn sandwich_e2e() {
     let payer = Keypair::new();
     svm.airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL).unwrap();
     let attacker = Keypair::new();
-    svm.airdrop(&attacker.pubkey(), 10 * LAMPORTS_PER_SOL).unwrap();
+    svm.airdrop(&attacker.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
     let victim = Keypair::new();
-    svm.airdrop(&victim.pubkey(), 10 * LAMPORTS_PER_SOL).unwrap();
+    svm.airdrop(&victim.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
 
     // --- Two mints, ordered so mint_a < mint_b (program enforces). ---
     let (mint_a_kp, mint_b_kp) = loop {
@@ -244,10 +241,8 @@ fn sandwich_e2e() {
     // --- Token accounts for payer / attacker / victim ---
     let payer_a = create_token_account(&mut svm, &payer, &mint_a, &payer.pubkey()).pubkey();
     let payer_b = create_token_account(&mut svm, &payer, &mint_b, &payer.pubkey()).pubkey();
-    let attacker_a =
-        create_token_account(&mut svm, &payer, &mint_a, &attacker.pubkey()).pubkey();
-    let attacker_b =
-        create_token_account(&mut svm, &payer, &mint_b, &attacker.pubkey()).pubkey();
+    let attacker_a = create_token_account(&mut svm, &payer, &mint_a, &attacker.pubkey()).pubkey();
+    let attacker_b = create_token_account(&mut svm, &payer, &mint_b, &attacker.pubkey()).pubkey();
     let victim_a = create_token_account(&mut svm, &payer, &mint_a, &victim.pubkey()).pubkey();
     let victim_b = create_token_account(&mut svm, &payer, &mint_b, &victim.pubkey()).pubkey();
 
@@ -348,14 +343,14 @@ fn sandwich_e2e() {
 
     // Helper to build a swap instruction (A->B or B->A).
     let build_swap_ix = |user: &Pubkey,
-                        user_token_in: &Pubkey,
-                        user_token_out: &Pubkey,
-                        mint_in: &Pubkey,
-                        mint_out: &Pubkey,
-                        vault_in: &Pubkey,
-                        vault_out: &Pubkey,
-                        amount_in: u64,
-                        min_out: u64|
+                         user_token_in: &Pubkey,
+                         user_token_out: &Pubkey,
+                         mint_in: &Pubkey,
+                         mint_out: &Pubkey,
+                         vault_in: &Pubkey,
+                         vault_out: &Pubkey,
+                         amount_in: u64,
+                         min_out: u64|
      -> Instruction {
         let accounts = amm_accounts::Swap {
             user: *user,
@@ -384,7 +379,8 @@ fn sandwich_e2e() {
     // --- Sandwich step 1: attacker frontrun (A -> B) ---
     // Pick V_f heuristically = 20_000 A (40% of attacker stack, enough to move price).
     let frontrun_in: u64 = 20_000;
-    let expected_fr = compute_swap(frontrun_in, r_a_0, r_b_0, 30).expect("fr math");
+    let expected_fr =
+        compute_swap(frontrun_in as u128, r_a_0 as u128, r_b_0 as u128, 30).expect("fr math");
     let fr_ix = build_swap_ix(
         &attacker.pubkey(),
         &attacker_a,
@@ -401,17 +397,18 @@ fn sandwich_e2e() {
     let attacker_b_after_fr = token_balance(&svm, &attacker_b);
     assert_close(
         attacker_b_after_fr,
-        expected_fr.amount_out,
+        expected_fr.amount_out as u64,
         1,
         "frontrun out",
     );
     let (r_a_1, r_b_1) = read_pool_reserves(&svm, &pdas.pool);
-    assert_eq!(r_a_1, expected_fr.new_reserve_in);
-    assert_eq!(r_b_1, expected_fr.new_reserve_out);
+    assert_eq!(r_a_1, expected_fr.new_reserve_in as u64);
+    assert_eq!(r_b_1, expected_fr.new_reserve_out as u64);
 
     // --- Sandwich step 2: victim swap 10_000 A -> B (worse price now) ---
     let victim_in: u64 = victim_initial_a;
-    let expected_vic = compute_swap(victim_in, r_a_1, r_b_1, 30).expect("vic math");
+    let expected_vic =
+        compute_swap(victim_in as u128, r_a_1 as u128, r_b_1 as u128, 30).expect("vic math");
     let vic_ix = build_swap_ix(
         &victim.pubkey(),
         &victim_a,
@@ -426,15 +423,21 @@ fn sandwich_e2e() {
     send(&mut svm, &victim, &[], &[vic_ix]);
 
     let victim_b_after = token_balance(&svm, &victim_b);
-    assert_close(victim_b_after, expected_vic.amount_out, 1, "victim out");
+    assert_close(
+        victim_b_after,
+        expected_vic.amount_out as u64,
+        1,
+        "victim out",
+    );
     let (r_a_2, r_b_2) = read_pool_reserves(&svm, &pdas.pool);
-    assert_eq!(r_a_2, expected_vic.new_reserve_in);
-    assert_eq!(r_b_2, expected_vic.new_reserve_out);
+    assert_eq!(r_a_2, expected_vic.new_reserve_in as u64);
+    assert_eq!(r_b_2, expected_vic.new_reserve_out as u64);
 
     // --- Sandwich step 3: attacker backrun (all B -> A) ---
     let backrun_in: u64 = attacker_b_after_fr;
     // Backrun direction B -> A: input reserve = r_b_2, output reserve = r_a_2.
-    let expected_br = compute_swap(backrun_in, r_b_2, r_a_2, 30).expect("br math");
+    let expected_br =
+        compute_swap(backrun_in as u128, r_b_2 as u128, r_a_2 as u128, 30).expect("br math");
     let br_ix = build_swap_ix(
         &attacker.pubkey(),
         &attacker_b,
@@ -452,14 +455,18 @@ fn sandwich_e2e() {
     let attacker_b_final = token_balance(&svm, &attacker_b);
     // Attacker swapped all their B -> A, so expected A balance is
     // (initial - frontrun_in) + expected_br.amount_out.
-    let expected_attacker_a_final = attacker_initial_a - frontrun_in + expected_br.amount_out;
+    let expected_attacker_a_final =
+        attacker_initial_a - frontrun_in + expected_br.amount_out as u64;
     assert_close(
         attacker_a_final,
         expected_attacker_a_final,
         1,
         "attacker final A",
     );
-    assert_eq!(attacker_b_final, 0, "attacker should have drained B on backrun");
+    assert_eq!(
+        attacker_b_final, 0,
+        "attacker should have drained B on backrun"
+    );
 
     // --- Gross profit assertion: attacker ended with more A than they started ---
     assert!(

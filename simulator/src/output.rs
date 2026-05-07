@@ -1,6 +1,14 @@
 use serde::Serialize;
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttackStatus {
+    Executed,
+    NoProfitableAttack,
+    NoAttackConfigured,
+}
+
 /// One row in the output CSV — covers both scenario A (custom AMM) and C (mainnet fork).
 #[derive(Debug, Clone, Serialize)]
 pub struct SimulationRecord {
@@ -31,6 +39,7 @@ pub struct SimulationRecord {
     pub attacker_gross_profit: i64,
     pub attacker_net_profit: i64,
     pub attack_profitable: bool,
+    pub attack_status: AttackStatus,
 
     // Victim results
     pub victim_amount_out_no_attack: u64,

@@ -12,7 +12,7 @@ pub struct Scenario {
     /// Approximate basis-points fee. For synthetic sweeps this is the source
     /// of truth; for real-pool replay it is a lossy projection of
     /// `trade_fee_rate` (denom=1e6) and is used only by the bps-keyed
-    /// analytical optimum (`amm_math::sandwich::optimal_sandwich`).
+    /// analytical closed-form baseline (`amm_math::sandwich::closed_form`).
     pub pool_fee_bps: u16,
     /// Multi-component fee schedule used by the actual swap math
     /// (`amm_math::multi_fee::compute_swap_multi_fee`).
@@ -27,7 +27,7 @@ pub struct Scenario {
 
 /// Generate scenarios from config. If sweep defined, cartesian product of sweep values.
 /// Otherwise single scenario from base config.
-pub fn generate(config: &SimConfig) -> Vec<Scenario> {
+pub fn generate(config: &SimConfig) -> Result<Vec<Scenario>, String> {
     // If a real-pool snapshot is configured, override pool_x/pool_y/fee with
     // values from the cached snapshot. The remaining sweep dims (victim_size,
     // slippage_bps) still vary normally.
@@ -48,8 +48,14 @@ pub fn generate(config: &SimConfig) -> Vec<Scenario> {
                     (ra, rb, fee_bps, label, true, Some(p))
                 }
                 Err(e) => {
+                    if !rp.allow_synthetic_fallback {
+                        return Err(format!(
+                            "real_pool: failed to load snapshot at {} ({}); set real_pool.allow_synthetic_fallback = true to run synthetic fallback",
+                            rp.manifest, e
+                        ));
+                    }
                     eprintln!(
-                        "real_pool: failed to load snapshot at {} ({}); falling back to synthetic config",
+                        "real_pool: failed to load snapshot at {} ({}); falling back to synthetic config because allow_synthetic_fallback=true",
                         rp.manifest, e
                     );
                     (
@@ -83,10 +89,10 @@ pub fn generate(config: &SimConfig) -> Vec<Scenario> {
         pool_label,
     };
 
-    match &config.sweep {
+    Ok(match &config.sweep {
         Some(sweep) => generate_sweep(&base, sweep, force_pool, real_pool.as_ref()),
         None => vec![base],
-    }
+    })
 }
 
 fn generate_sweep(

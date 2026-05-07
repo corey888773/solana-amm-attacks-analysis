@@ -30,9 +30,21 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    let config = config::SimConfig::load(cli.config.as_deref()).expect("Failed to load config");
+    let config = match config::SimConfig::load(cli.config.as_deref()) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Failed to load config: {err}");
+            std::process::exit(1);
+        }
+    };
 
-    let scenarios = scenarios::generate(&config);
+    let scenarios = match scenarios::generate(&config) {
+        Ok(scenarios) => scenarios,
+        Err(err) => {
+            eprintln!("Failed to generate scenarios: {err}");
+            std::process::exit(1);
+        }
+    };
     eprintln!(
         "Generated {} scenario(s), seed={}, direction={:?}",
         scenarios.len(),
