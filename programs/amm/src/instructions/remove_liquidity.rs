@@ -30,7 +30,10 @@ pub fn handle_remove_liquidity(
         .ok_or(AmmError::MathOverflow)?
         / supply) as u64;
 
-    require!(amount_a > 0 && amount_b > 0, AmmError::InsufficientLiquidity);
+    require!(
+        amount_a > 0 && amount_b > 0,
+        AmmError::InsufficientLiquidity
+    );
     require!(
         amount_a >= min_a_out && amount_b >= min_b_out,
         AmmError::SlippageExceeded
@@ -65,7 +68,11 @@ pub fn handle_remove_liquidity(
         },
         signer_seeds,
     );
-    token_interface::transfer_checked(transfer_a_ctx, amount_a, ctx.accounts.token_a_mint.decimals)?;
+    token_interface::transfer_checked(
+        transfer_a_ctx,
+        amount_a,
+        ctx.accounts.token_a_mint.decimals,
+    )?;
 
     // Transfer token B from vault to user
     let transfer_b_ctx = CpiContext::new_with_signer(
@@ -78,7 +85,11 @@ pub fn handle_remove_liquidity(
         },
         signer_seeds,
     );
-    token_interface::transfer_checked(transfer_b_ctx, amount_b, ctx.accounts.token_b_mint.decimals)?;
+    token_interface::transfer_checked(
+        transfer_b_ctx,
+        amount_b,
+        ctx.accounts.token_b_mint.decimals,
+    )?;
 
     // Update pool reserves using checked arithmetic.
     pool.reserve_a = pool

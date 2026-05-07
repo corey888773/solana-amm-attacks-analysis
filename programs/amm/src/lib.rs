@@ -13,8 +13,20 @@ declare_id!("DEwKoXtDPgme9dVdKVj7eLta7mzFDyGxA9DCssTVEiRz");
 pub mod amm {
     use super::*;
 
-    pub fn initialize_pool(ctx: Context<InitializePool>, fee_bps: u16) -> Result<()> {
-        instructions::initialize_pool::handle_initialize_pool(ctx, fee_bps)
+    pub fn initialize_pool(
+        ctx: Context<InitializePool>,
+        trade_fee_rate: u64,
+        creator_fee_rate: u64,
+        fee_denominator: u64,
+        creator_fee_mode: u8,
+    ) -> Result<()> {
+        instructions::initialize_pool::handle_initialize_pool(
+            ctx,
+            trade_fee_rate,
+            creator_fee_rate,
+            fee_denominator,
+            creator_fee_mode,
+        )
     }
 
     pub fn add_liquidity(
@@ -32,7 +44,9 @@ pub mod amm {
         min_a_out: u64,
         min_b_out: u64,
     ) -> Result<()> {
-        instructions::remove_liquidity::handle_remove_liquidity(ctx, lp_amount, min_a_out, min_b_out)
+        instructions::remove_liquidity::handle_remove_liquidity(
+            ctx, lp_amount, min_a_out, min_b_out,
+        )
     }
 
     pub fn swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> Result<()> {

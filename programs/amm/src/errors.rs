@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 pub enum AmmError {
     #[msg("Swap output below minimum (slippage exceeded)")]
     SlippageExceeded,
-    #[msg("Invalid fee: must be < 10000 bps")]
+    #[msg("Invalid fee config")]
     InvalidFee,
     #[msg("Zero amount not allowed")]
     ZeroAmount,
