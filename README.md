@@ -72,6 +72,10 @@ The `amm-math` crate is the single source of truth for swap math. The
 off-chain simulator and the on-chain Anchor program link the same
 functions for the custom AMM path, so on-chain validation reduces to comparing
 pool state after executing the same trade sequence in both environments.
+The custom AMM stores explicit multi-fee config
+(`trade_fee_rate`, `creator_fee_rate`, `fee_denominator`,
+`creator_fee_mode`) and calls `amm_math::multi_fee::compute_swap_multi_fee`;
+the old single-fee behavior is represented by `creator_fee_rate = 0`.
 
 For real-pool experiments, `fork` snapshots Raydium CPMM accounts from
 mainnet, loads them into LiteSVM with the dumped Raydium program, and the

@@ -4,11 +4,11 @@
 //! `target/deploy/amm.so`, initializes a pool with 0.30% fee, seeds liquidity
 //! and executes a frontrun -> victim -> backrun sandwich. Each on-chain swap
 //! output is cross-checked against the off-chain `amm-math` implementation
-//! (Uniswap V2 constant-product, Adams et al. 2020, §3.1.1).
+//! (CPMM multi-fee math; Uniswap V2 constant-product, Adams et al. 2020, §3.1.1).
 
 use std::path::PathBuf;
 
-use amm_math::constant_product::compute_swap;
+use amm_math::multi_fee::{compute_swap_multi_fee, MultiFeeConfig};
 use anchor_lang::solana_program::system_instruction;
 use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
@@ -34,6 +34,7 @@ const POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 const LP_MINT_SEED: &[u8] = b"lp_mint";
 const VAULT_A_SEED: &[u8] = b"vault_a";
 const VAULT_B_SEED: &[u8] = b"vault_b";
+const CREATOR_FEE_MODE_DISABLED: u8 = 0;
 
 const SPL_MINT_LEN: usize = 82;
 const SPL_ACCOUNT_LEN: usize = 165;
@@ -280,7 +281,8 @@ fn sandwich_e2e() {
     // So we'll create this account after init. pool_authority_lp_token is also
     // a regular SPL account owned by the pool_authority PDA.
 
-    // --- Initialize pool (fee_bps = 30) ---
+    // --- Initialize pool (single-fee compatibility: 30 / 10_000 = 0.30%) ---
+    let fee_cfg = MultiFeeConfig::single(30, 10_000);
     let init_accounts = amm_accounts::InitializePool {
         payer: payer.pubkey(),
         pool: pdas.pool,
@@ -297,7 +299,13 @@ fn sandwich_e2e() {
     let init_ix = Instruction {
         program_id,
         accounts: init_accounts,
-        data: amm_instruction::InitializePool { fee_bps: 30 }.data(),
+        data: amm_instruction::InitializePool {
+            trade_fee_rate: 30,
+            creator_fee_rate: 0,
+            fee_denominator: 10_000,
+            creator_fee_mode: CREATOR_FEE_MODE_DISABLED,
+        }
+        .data(),
     };
     send(&mut svm, &payer, &[], &[init_ix]);
 
@@ -380,7 +388,8 @@ fn sandwich_e2e() {
     // Pick V_f heuristically = 20_000 A (40% of attacker stack, enough to move price).
     let frontrun_in: u64 = 20_000;
     let expected_fr =
-        compute_swap(frontrun_in as u128, r_a_0 as u128, r_b_0 as u128, 30).expect("fr math");
+        compute_swap_multi_fee(r_a_0 as u128, r_b_0 as u128, frontrun_in as u128, &fee_cfg)
+            .expect("fr math");
     let fr_ix = build_swap_ix(
         &attacker.pubkey(),
         &attacker_a,
@@ -408,7 +417,8 @@ fn sandwich_e2e() {
     // --- Sandwich step 2: victim swap 10_000 A -> B (worse price now) ---
     let victim_in: u64 = victim_initial_a;
     let expected_vic =
-        compute_swap(victim_in as u128, r_a_1 as u128, r_b_1 as u128, 30).expect("vic math");
+        compute_swap_multi_fee(r_a_1 as u128, r_b_1 as u128, victim_in as u128, &fee_cfg)
+            .expect("vic math");
     let vic_ix = build_swap_ix(
         &victim.pubkey(),
         &victim_a,
@@ -437,7 +447,8 @@ fn sandwich_e2e() {
     let backrun_in: u64 = attacker_b_after_fr;
     // Backrun direction B -> A: input reserve = r_b_2, output reserve = r_a_2.
     let expected_br =
-        compute_swap(backrun_in as u128, r_b_2 as u128, r_a_2 as u128, 30).expect("br math");
+        compute_swap_multi_fee(r_b_2 as u128, r_a_2 as u128, backrun_in as u128, &fee_cfg)
+            .expect("br math");
     let br_ix = build_swap_ix(
         &attacker.pubkey(),
         &attacker_b,

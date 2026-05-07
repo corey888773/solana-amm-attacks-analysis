@@ -18,13 +18,15 @@ pub fn handle_swap(ctx: Context<Swap>, amount_in: u64, min_amount_out: u64) -> R
         (pool.reserve_b, pool.reserve_a)
     };
 
-    // Delegate math to amm-math (shared crate)
-    // Source: Uniswap V2 whitepaper (Adams et al., 2020), Section 3.1.1
-    let result = amm_math::constant_product::compute_swap(
-        amount_in as u128,
+    let fee_config = pool.fee_config().ok_or(AmmError::InvalidFee)?;
+    // Delegate math to amm-math (shared crate).
+    // Source: Uniswap V2 whitepaper (Adams et al., 2020), Section 3.1.1.
+    // Multi-fee rounding/model: Raydium CPMM fee math, mirrored in amm-math.
+    let result = amm_math::multi_fee::compute_swap_multi_fee(
         reserve_in as u128,
         reserve_out as u128,
-        pool.fee_bps,
+        amount_in as u128,
+        &fee_config,
     )
     .ok_or(AmmError::MathOverflow)?;
 
