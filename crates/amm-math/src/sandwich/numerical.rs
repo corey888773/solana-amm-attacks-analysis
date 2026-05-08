@@ -187,6 +187,86 @@ pub fn compute_numerical_sandwich(
     )
 }
 
+/// Brute-force/grid oracle for validating the numerical optimizer.
+///
+/// The production optimizer (`compute_numerical_sandwich`) uses ternary search,
+/// which is fast but relies on the profit curve having one practical maximum.
+/// This oracle makes the opposite tradeoff: it is slow, simple, and does not
+/// assume unimodality. On small ranges it checks every integer frontrun size;
+/// on large ranges it samples an evenly-spaced grid. That makes it useful as a
+/// regression/benchmark baseline: if ternary search reports materially worse
+/// profit than the grid result, the unimodality assumption, search bounds, or
+/// rounding behavior need investigation.
+///
+/// Use this in tests, examples, and CSV benchmark harnesses, not hot simulator
+/// paths. For `reserve_in <= max_steps` it checks every integer frontrun size
+/// in `[1, reserve_in]`; otherwise it samples an evenly-spaced grid and always
+/// includes `reserve_in`.
+pub fn compute_grid_sandwich(
+    reserve_in: u128,
+    reserve_out: u128,
+    victim_amount_in: u128,
+    cfg: &MultiFeeConfig,
+    tx_cost: u128,
+    max_steps: u64,
+) -> Option<SandwichResult> {
+    if victim_amount_in == 0 || reserve_in == 0 || reserve_out == 0 || max_steps == 0 {
+        return None;
+    }
+
+    let mut best_v: u128 = 0;
+    let mut best_p = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, 0);
+
+    let steps = u128::from(max_steps);
+    let step = if reserve_in <= steps {
+        1
+    } else {
+        reserve_in.div_ceil(steps)
+    };
+
+    let mut v = step;
+    while v <= reserve_in {
+        let p = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, v);
+        if p > best_p {
+            best_p = p;
+            best_v = v;
+        }
+
+        match v.checked_add(step) {
+            Some(next) if next > v => v = next,
+            _ => break,
+        }
+    }
+
+    if best_v != reserve_in {
+        let p = net_profit(
+            reserve_in,
+            reserve_out,
+            victim_amount_in,
+            cfg,
+            tx_cost,
+            reserve_in,
+        );
+        if p > best_p {
+            best_p = p;
+            best_v = reserve_in;
+        }
+    }
+
+    if best_p <= 0 {
+        return None;
+    }
+
+    simulate_sandwich(
+        reserve_in,
+        reserve_out,
+        victim_amount_in,
+        cfg,
+        tx_cost,
+        best_v,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +316,93 @@ mod tests {
             result.frontrun_amount,
             numerical_frontrun_amount(1_000_000, 1_000_000, 50_000, &cfg_30bps(), 0)
         );
+    }
+
+    #[test]
+    fn grid_oracle_matches_numerical_on_small_exact_search() {
+        let reserve_in = 5_000u128;
+        let reserve_out = 5_000u128;
+        let victim = 500u128;
+        let cfg = cfg_30bps();
+
+        let numerical = compute_numerical_sandwich(reserve_in, reserve_out, victim, &cfg, 0)
+            .expect("numerical");
+        let grid =
+            compute_grid_sandwich(reserve_in, reserve_out, victim, &cfg, 0, reserve_in as u64)
+                .expect("grid");
+
+        let tolerance = 2;
+        assert!(
+            numerical.net_profit >= grid.net_profit - tolerance,
+            "numerical={} grid={}",
+            numerical.net_profit,
+            grid.net_profit
+        );
+    }
+
+    #[test]
+    fn grid_oracle_matrix_bounds_numerical_regression() {
+        let scenarios = [
+            (1_000u128, 1_000u128, 50u128),
+            (2_500u128, 2_500u128, 125u128),
+            (5_000u128, 4_000u128, 250u128),
+            (8_000u128, 10_000u128, 400u128),
+            (12_000u128, 12_000u128, 600u128),
+        ];
+        let fee_rates = [0u64, 5, 30, 100, 250];
+        let tx_costs = [0u128, 1, 10];
+        let tolerance = 4i128;
+
+        for &(reserve_in, reserve_out, victim) in &scenarios {
+            for &fee_rate in &fee_rates {
+                let cfg = MultiFeeConfig::single(fee_rate, 10_000);
+                for &tx_cost in &tx_costs {
+                    let numerical =
+                        compute_numerical_sandwich(reserve_in, reserve_out, victim, &cfg, tx_cost);
+                    let grid = compute_grid_sandwich(
+                        reserve_in,
+                        reserve_out,
+                        victim,
+                        &cfg,
+                        tx_cost,
+                        reserve_in as u64,
+                    );
+
+                    match (numerical, grid) {
+                        (Some(numerical), Some(grid)) => assert!(
+                            numerical.net_profit >= grid.net_profit - tolerance,
+                            "numerical={} grid={} r_in={} r_out={} victim={} fee={} tx_cost={}",
+                            numerical.net_profit,
+                            grid.net_profit,
+                            reserve_in,
+                            reserve_out,
+                            victim,
+                            fee_rate,
+                            tx_cost
+                        ),
+                        (None, Some(grid)) => assert!(
+                            grid.net_profit <= tolerance,
+                            "numerical none but grid profitable={} r_in={} r_out={} victim={} fee={} tx_cost={}",
+                            grid.net_profit,
+                            reserve_in,
+                            reserve_out,
+                            victim,
+                            fee_rate,
+                            tx_cost
+                        ),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grid_oracle_returns_none_when_no_profitable_attack() {
+        let result =
+            compute_grid_sandwich(1_000_000, 1_000_000, 10, &cfg_30bps(), 1_000_000_000, 1_000);
+
+        assert!(result.is_none());
     }
 
     /// On the integer-CPMM model the numerical optimizer should produce

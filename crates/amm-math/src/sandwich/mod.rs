@@ -8,4 +8,4 @@ pub mod closed_form;
 pub mod numerical;
 
 pub use closed_form::compute_closed_form_sandwich;
-pub use numerical::compute_numerical_sandwich;
+pub use numerical::{compute_grid_sandwich, compute_numerical_sandwich};

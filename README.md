@@ -172,6 +172,10 @@ cargo run --bin mev-sim -- -c configs/sweep_liquidity.toml --parallel
 # Real-pool sweep using cached Raydium CPMM WSOL/SURGE snapshot
 cargo run --bin mev-sim -- -c configs/sweep_real_pool.toml --parallel
 
+# Closed-form vs numerical optimizer benchmark CSV
+cargo run -p simulator --example bench_zhou_vs_numerical -- \
+  -o results/zhou_vs_numerical.csv
+
 # Custom output path
 cargo run --bin mev-sim -- -c configs/default.toml -o results/my_test.csv
 
