@@ -119,6 +119,25 @@ fn net_profit(
 /// Net profit is unimodal in `V_f` over `(0, reserve_in)` for `phi > 0`
 /// (concave with a single maximum), so ternary search converges in
 /// `O(log(range / precision))`.
+///
+/// # Example
+///
+/// ```
+/// use amm_math::multi_fee::MultiFeeConfig;
+/// use amm_math::sandwich::compute_numerical_sandwich;
+///
+/// let cfg = MultiFeeConfig::single(30, 10_000);
+/// let result = compute_numerical_sandwich(
+///     1_000_000,
+///     1_000_000,
+///     50_000,
+///     &cfg,
+///     0,
+/// ).expect("profitable sandwich");
+///
+/// assert!(result.frontrun_amount > 0);
+/// assert!(result.net_profit > 0);
+/// ```
 pub fn compute_numerical_sandwich(
     reserve_in: u128,
     reserve_out: u128,
@@ -705,5 +724,118 @@ mod tests {
             (10.0..100.0).contains(&bps_5sol),
             "5-SOL reference bps={bps_5sol:.1} outside expected ~40 bps range"
         );
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::multi_fee::MultiFeeConfig;
+    use proptest::prelude::*;
+
+    const MAX_RESERVE: u128 = 1_000_000_000_000;
+
+    fn zhou_frontrun_amount(reserve_in: u128, victim_amount_in: u128, fee_bps: u16) -> u128 {
+        let phi = fee_bps as f64 / 10_000.0;
+        let one_minus_phi = (1.0 - phi).max(1e-9);
+        let x = reserve_in as f64;
+        let v = victim_amount_in as f64;
+
+        ((x * v) / ((x * (x + one_minus_phi * v)).sqrt() + x)) as u128
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// If the numerical optimizer returns a sandwich, that sandwich is
+        /// executable with non-negative gross profit and strictly positive
+        /// net profit. If no positive-profit frontrun exists, returning `None`
+        /// is the expected output.
+        #[test]
+        fn numerical_result_is_never_negative_profit(
+            reserve_in in 1_000u128..MAX_RESERVE,
+            reserve_out in 1_000u128..MAX_RESERVE,
+            victim_frac_ppm in 1u128..500_000,
+            fee_bps in 0u16..9_999,
+        ) {
+            let victim_amount_in = (reserve_in.saturating_mul(victim_frac_ppm) / 1_000_000).max(1);
+            prop_assume!(victim_amount_in <= reserve_in / 2);
+
+            let cfg = MultiFeeConfig::single(u64::from(fee_bps), 10_000);
+            if let Some(result) =
+                compute_numerical_sandwich(reserve_in, reserve_out, victim_amount_in, &cfg, 0)
+            {
+                prop_assert!(result.frontrun_amount > 0);
+                prop_assert!(result.frontrun_amount < reserve_in);
+                prop_assert!(
+                    result.gross_profit >= 0,
+                    "gross_profit={} r_in={} r_out={} victim={} fee_bps={}",
+                    result.gross_profit,
+                    reserve_in,
+                    reserve_out,
+                    victim_amount_in,
+                    fee_bps
+                );
+                prop_assert!(
+                    result.net_profit > 0,
+                    "net_profit={} r_in={} r_out={} victim={} fee_bps={}",
+                    result.net_profit,
+                    reserve_in,
+                    reserve_out,
+                    victim_amount_in,
+                    fee_bps
+                );
+            }
+        }
+
+        /// The fee-aware numerical optimizer should not underperform the Zhou
+        /// closed-form frontrun when both are evaluated against the same
+        /// executable integer CPMM profit function. A small integer-rounding
+        /// tolerance is allowed because Zhou's formula is continuous/f64 while
+        /// execution is integer/ceil-fee based.
+        #[test]
+        fn numerical_profit_matches_or_beats_zhou_profit_proptest(
+            reserve_in in 1_000u128..MAX_RESERVE,
+            reserve_out in 1_000u128..MAX_RESERVE,
+            victim_frac_ppm in 1u128..500_000,
+            fee_bps in 0u16..9_999,
+        ) {
+            let victim_amount_in = (reserve_in.saturating_mul(victim_frac_ppm) / 1_000_000).max(1);
+            prop_assume!(victim_amount_in <= reserve_in / 2);
+
+            let cfg = MultiFeeConfig::single(u64::from(fee_bps), 10_000);
+            let zhou_v = zhou_frontrun_amount(reserve_in, victim_amount_in, fee_bps);
+            prop_assume!(zhou_v > 0);
+            prop_assume!(zhou_v < reserve_in);
+
+            let zhou_profit =
+                net_profit(reserve_in, reserve_out, victim_amount_in, &cfg, 0, zhou_v);
+            let numerical =
+                compute_numerical_sandwich(reserve_in, reserve_out, victim_amount_in, &cfg, 0);
+
+            match numerical {
+                Some(result) => prop_assert!(
+                    result.net_profit + 4 >= zhou_profit,
+                    "numerical={} zhou={} zhou_v={} r_in={} r_out={} victim={} fee_bps={}",
+                    result.net_profit,
+                    zhou_profit,
+                    zhou_v,
+                    reserve_in,
+                    reserve_out,
+                    victim_amount_in,
+                    fee_bps
+                ),
+                None => prop_assert!(
+                    zhou_profit <= 4,
+                    "numerical returned None but Zhou profit={} zhou_v={} r_in={} r_out={} victim={} fee_bps={}",
+                    zhou_profit,
+                    zhou_v,
+                    reserve_in,
+                    reserve_out,
+                    victim_amount_in,
+                    fee_bps
+                ),
+            }
+        }
     }
 }
