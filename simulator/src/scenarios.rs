@@ -19,8 +19,14 @@ pub struct Scenario {
     pub fee_config: MultiFeeConfig,
     pub victim_swap_amount: u64,
     pub victim_slippage_bps: u16,
-    /// cost of 2 txs expressed in input-token units (converted from lamports at configured SOL price)
-    pub tx_cost: u64,
+    /// Cost of one attacker transaction leg, expressed in input-token units.
+    /// Passed to optimizers that internally account for frontrun + backrun.
+    pub tx_cost_per_leg: u64,
+    /// Total sandwich transaction cost (frontrun + backrun), expressed in
+    /// input-token units. Used for final CSV net-profit accounting.
+    pub tx_cost_total: u64,
+    pub tx_cost_per_leg_lamports: u64,
+    pub tx_cost_total_lamports: u64,
     /// Snapshot label when replaying a real pool, "synthetic" otherwise.
     pub pool_label: String,
 }
@@ -85,7 +91,10 @@ pub fn generate(config: &SimConfig) -> Result<Vec<Scenario>, String> {
         fee_config: fee_config_from_pool(base_fee_bps, real_pool.as_ref()),
         victim_swap_amount: config.victim.swap_amount,
         victim_slippage_bps: config.victim.slippage_tolerance_bps,
-        tx_cost: config.costs.total_in_input_token(),
+        tx_cost_per_leg: config.costs.per_leg_in_input_token(),
+        tx_cost_total: config.costs.total_sandwich_in_input_token(),
+        tx_cost_per_leg_lamports: config.costs.per_leg_lamports(),
+        tx_cost_total_lamports: config.costs.total_sandwich_lamports(),
         pool_label,
     };
 
@@ -138,7 +147,10 @@ fn generate_sweep(
                 fee_config: fee_config_from_pool(fee, real_pool),
                 victim_swap_amount: va,
                 victim_slippage_bps: slip,
-                tx_cost: base.tx_cost,
+                tx_cost_per_leg: base.tx_cost_per_leg,
+                tx_cost_total: base.tx_cost_total,
+                tx_cost_per_leg_lamports: base.tx_cost_per_leg_lamports,
+                tx_cost_total_lamports: base.tx_cost_total_lamports,
                 pool_label: base.pool_label.clone(),
             }
         })

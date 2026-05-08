@@ -53,10 +53,14 @@ pub struct SimulationRecord {
     pub price_impact_bps: u64,
 
     // Meta
-    /// Total transaction cost for the sandwich (front+back) expressed in input-token units
-    /// (smallest denomination of token_in), converted from lamports via
-    /// `costs.input_token_per_sol`. CSV column name kept as `tx_cost_total` for backward compat.
+    /// Cost of one attacker transaction leg expressed in input-token units
+    /// (smallest denomination of token_in).
+    pub tx_cost_per_leg: u64,
+    /// Total transaction cost for the sandwich (front+back) expressed in
+    /// input-token units.
     pub tx_cost_total: u64,
+    pub tx_cost_per_leg_lamports: u64,
+    pub tx_cost_total_lamports: u64,
     pub iteration: u32,
     pub source: String,
     /// Snapshot label when the run replays a real pool, "synthetic" otherwise.

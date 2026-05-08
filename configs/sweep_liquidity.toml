@@ -13,8 +13,11 @@ slippage_tolerance_bps = 300
 direction = "a_to_b"
 
 [costs]
+# Costs are per attacker leg. Output CSV includes tx_cost_per_leg and tx_cost_total.
 base_fee_lamports = 5000
 priority_fee_lamports = 100_000
+compute_unit_limit = 0
+compute_unit_price_micro_lamports = 0
 jito_tip_lamports = 1_000_000
 # Price of 1 SOL in input-token units (see default.toml for explanation).
 input_token_per_sol = 150_000_000.0
