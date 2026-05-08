@@ -12,13 +12,13 @@ use crate::BPS_DENOMINATOR_F64;
 /// * `reserve_in` - pool reserve of input token
 /// * `reserve_out` - pool reserve of output token
 /// * `fee_bps` - pool fee in basis points
-/// * `tx_cost` - total cost of 2 txs (frontrun + backrun) in input token units
+/// * `tx_cost_total` - total cost of 2 txs (frontrun + backrun) in input token units
 pub fn compute_closed_form_sandwich(
     victim_amount: u128,
     reserve_in: u128,
     reserve_out: u128,
     fee_bps: u16,
-    tx_cost: u128,
+    tx_cost_total: u128,
 ) -> Option<SandwichResult> {
     if victim_amount == 0
         || reserve_in == 0
@@ -86,7 +86,7 @@ pub fn compute_closed_form_sandwich(
     };
 
     let gross_profit = backrun.amount_out as i128 - frontrun_amount as i128;
-    let net_profit = gross_profit - tx_cost as i128;
+    let net_profit = gross_profit - tx_cost_total as i128;
 
     Some(SandwichResult {
         frontrun_amount,

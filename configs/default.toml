@@ -13,8 +13,13 @@ slippage_tolerance_bps = 300    # 3%
 direction = "a_to_b"
 
 [costs]
+# Costs are per attacker leg. Simulator records both tx_cost_per_leg and
+# tx_cost_total = 2 * tx_cost_per_leg in output CSV.
 base_fee_lamports = 5000
 priority_fee_lamports = 100_000
+# Optional priority fee model; additive with priority_fee_lamports when set.
+compute_unit_limit = 0
+compute_unit_price_micro_lamports = 0
 jito_tip_lamports = 1_000_000   # ~0.001 SOL Jito tip
 # Price of 1 SOL in units of the input token (token_in smallest denomination).
 # Used to convert lamport fees into input-token units for net-profit math.

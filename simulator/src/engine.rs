@@ -68,7 +68,10 @@ fn no_attack_record(
         price_before: price,
         price_after_attack: price,
         price_impact_bps: 0,
-        tx_cost_total: scenario.tx_cost,
+        tx_cost_per_leg: scenario.tx_cost_per_leg,
+        tx_cost_total: scenario.tx_cost_total,
+        tx_cost_per_leg_lamports: scenario.tx_cost_per_leg_lamports,
+        tx_cost_total_lamports: scenario.tx_cost_total_lamports,
         iteration,
         source: "custom_amm".to_string(),
         pool_label: scenario.pool_label.clone(),
@@ -97,7 +100,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
             pool.reserve_a,
             pool.reserve_b,
             pool.fee_bps,
-            scenario.tx_cost as u128,
+            scenario.tx_cost_total as u128,
         ) {
             Some(analysis) => analysis.frontrun_amount.min(u64::MAX as u128) as u64,
             None => {
@@ -116,7 +119,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
             pool.reserve_b,
             scenario.victim_swap_amount as u128,
             cfg,
-            scenario.tx_cost as u128,
+            scenario.tx_cost_per_leg as u128,
         ) {
             Some(analysis) => analysis.frontrun_amount.min(u64::MAX as u128) as u64,
             None => {
@@ -163,7 +166,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
 
     let backrun_out = backrun.amount_out.min(i64::MAX as u128) as i64;
     let gross_profit = backrun_out - frontrun_amount as i64;
-    let net_profit = gross_profit - scenario.tx_cost as i64;
+    let net_profit = gross_profit - scenario.tx_cost_total as i64;
 
     let fair_out = fair_swap.amount_out.min(u64::MAX as u128) as u64;
     let sandwiched_out = victim_sandwiched.amount_out.min(u64::MAX as u128) as u64;
@@ -195,7 +198,10 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
         price_before: pool.spot_price(),
         price_after_attack: backrun.new_reserve_out as f64 / backrun.new_reserve_in as f64,
         price_impact_bps: frontrun.price_impact_bps + victim_sandwiched.price_impact_bps,
-        tx_cost_total: scenario.tx_cost,
+        tx_cost_per_leg: scenario.tx_cost_per_leg,
+        tx_cost_total: scenario.tx_cost_total,
+        tx_cost_per_leg_lamports: scenario.tx_cost_per_leg_lamports,
+        tx_cost_total_lamports: scenario.tx_cost_total_lamports,
         iteration,
         source: "custom_amm".to_string(),
         pool_label: scenario.pool_label.clone(),
@@ -226,6 +232,8 @@ mod tests {
             costs: crate::config::CostParams {
                 base_fee_lamports: 0,
                 priority_fee_lamports: 0,
+                compute_unit_limit: 0,
+                compute_unit_price_micro_lamports: 0,
                 jito_tip_lamports: 0,
                 input_token_per_sol: 1.0,
             },
@@ -238,7 +246,7 @@ mod tests {
         }
     }
 
-    fn scenario(tx_cost: u64) -> Scenario {
+    fn scenario(tx_cost_total: u64) -> Scenario {
         Scenario {
             pool_reserve_a: 1_000_000,
             pool_reserve_b: 1_000_000,
@@ -251,7 +259,10 @@ mod tests {
             },
             victim_swap_amount: 10,
             victim_slippage_bps: 300,
-            tx_cost,
+            tx_cost_per_leg: tx_cost_total / 2,
+            tx_cost_total,
+            tx_cost_per_leg_lamports: tx_cost_total / 2,
+            tx_cost_total_lamports: tx_cost_total,
             pool_label: "synthetic".to_string(),
         }
     }

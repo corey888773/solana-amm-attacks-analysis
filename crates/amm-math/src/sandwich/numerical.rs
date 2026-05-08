@@ -13,7 +13,7 @@
 //! smaller frontrun would still be profitable.
 //!
 //! This module performs a ternary search over the unimodal net-profit
-//! function `pi(V_f) = backrun_out(V_f, victim) - V_f - 2 * tx_cost`,
+//! function `pi(V_f) = backrun_out(V_f, victim) - V_f - 2 * tx_cost_per_leg`,
 //! evaluating each candidate by simulating the three swaps (frontrun /
 //! victim / backrun) using the same `SwapResult` state transition as the
 //! simulator. ~100 iterations are sufficient for u128 precision down to a
@@ -29,7 +29,7 @@ fn simulate_sandwich(
     reserve_out: u128,
     victim_amount_in: u128,
     cfg: &MultiFeeConfig,
-    tx_cost: u128,
+    tx_cost_per_leg: u128,
     frontrun_in: u128,
 ) -> Option<SandwichResult> {
     if frontrun_in == 0 {
@@ -64,7 +64,7 @@ fn simulate_sandwich(
         0
     };
     let gross_profit = backrun.amount_out as i128 - frontrun_in as i128;
-    let net_profit = gross_profit - 2 * tx_cost as i128;
+    let net_profit = gross_profit - 2 * tx_cost_per_leg as i128;
 
     Some(SandwichResult {
         frontrun_amount: frontrun_in,
@@ -84,11 +84,11 @@ fn net_profit(
     reserve_out: u128,
     victim_amount_in: u128,
     cfg: &MultiFeeConfig,
-    tx_cost: u128,
+    tx_cost_per_leg: u128,
     frontrun_in: u128,
 ) -> i128 {
     if frontrun_in == 0 {
-        return 0i128 - 2 * tx_cost as i128;
+        return 0i128 - 2 * tx_cost_per_leg as i128;
     }
 
     simulate_sandwich(
@@ -96,7 +96,7 @@ fn net_profit(
         reserve_out,
         victim_amount_in,
         cfg,
-        tx_cost,
+        tx_cost_per_leg,
         frontrun_in,
     )
     .map(|result| result.net_profit)
@@ -143,7 +143,7 @@ pub fn compute_numerical_sandwich(
     reserve_out: u128,
     victim_amount_in: u128,
     cfg: &MultiFeeConfig,
-    tx_cost: u128,
+    tx_cost_per_leg: u128,
 ) -> Option<SandwichResult> {
     if victim_amount_in == 0 || reserve_in == 0 || reserve_out == 0 {
         return None;
@@ -164,8 +164,22 @@ pub fn compute_numerical_sandwich(
         let third = (hi - lo) / 3;
         let m1 = lo + third;
         let m2 = hi - third;
-        let p1 = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, m1);
-        let p2 = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, m2);
+        let p1 = net_profit(
+            reserve_in,
+            reserve_out,
+            victim_amount_in,
+            cfg,
+            tx_cost_per_leg,
+            m1,
+        );
+        let p2 = net_profit(
+            reserve_in,
+            reserve_out,
+            victim_amount_in,
+            cfg,
+            tx_cost_per_leg,
+            m2,
+        );
         if p1 < p2 {
             lo = m1;
         } else {
@@ -176,12 +190,26 @@ pub fn compute_numerical_sandwich(
     // Linear refinement over the small remaining bracket: pick the integer
     // candidate with the highest net profit (and prefer 0 if it dominates).
     let mut best_v: u128 = 0;
-    let mut best_p = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, 0);
+    let mut best_p = net_profit(
+        reserve_in,
+        reserve_out,
+        victim_amount_in,
+        cfg,
+        tx_cost_per_leg,
+        0,
+    );
     let lo_check = lo.saturating_sub(1);
     let hi_check = hi.saturating_add(1);
     let mut v = lo_check;
     while v <= hi_check {
-        let p = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, v);
+        let p = net_profit(
+            reserve_in,
+            reserve_out,
+            victim_amount_in,
+            cfg,
+            tx_cost_per_leg,
+            v,
+        );
         if p > best_p {
             best_p = p;
             best_v = v;
@@ -201,7 +229,7 @@ pub fn compute_numerical_sandwich(
         reserve_out,
         victim_amount_in,
         cfg,
-        tx_cost,
+        tx_cost_per_leg,
         best_v,
     )
 }
@@ -226,7 +254,7 @@ pub fn compute_grid_sandwich(
     reserve_out: u128,
     victim_amount_in: u128,
     cfg: &MultiFeeConfig,
-    tx_cost: u128,
+    tx_cost_per_leg: u128,
     max_steps: u64,
 ) -> Option<SandwichResult> {
     if victim_amount_in == 0 || reserve_in == 0 || reserve_out == 0 || max_steps == 0 {
@@ -234,7 +262,14 @@ pub fn compute_grid_sandwich(
     }
 
     let mut best_v: u128 = 0;
-    let mut best_p = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, 0);
+    let mut best_p = net_profit(
+        reserve_in,
+        reserve_out,
+        victim_amount_in,
+        cfg,
+        tx_cost_per_leg,
+        0,
+    );
 
     let steps = u128::from(max_steps);
     let step = if reserve_in <= steps {
@@ -245,7 +280,14 @@ pub fn compute_grid_sandwich(
 
     let mut v = step;
     while v <= reserve_in {
-        let p = net_profit(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost, v);
+        let p = net_profit(
+            reserve_in,
+            reserve_out,
+            victim_amount_in,
+            cfg,
+            tx_cost_per_leg,
+            v,
+        );
         if p > best_p {
             best_p = p;
             best_v = v;
@@ -263,7 +305,7 @@ pub fn compute_grid_sandwich(
             reserve_out,
             victim_amount_in,
             cfg,
-            tx_cost,
+            tx_cost_per_leg,
             reserve_in,
         );
         if p > best_p {
@@ -281,7 +323,7 @@ pub fn compute_grid_sandwich(
         reserve_out,
         victim_amount_in,
         cfg,
-        tx_cost,
+        tx_cost_per_leg,
         best_v,
     )
 }
@@ -309,11 +351,17 @@ mod tests {
         reserve_out: u128,
         victim_amount_in: u128,
         cfg: &MultiFeeConfig,
-        tx_cost: u128,
+        tx_cost_per_leg: u128,
     ) -> u128 {
-        compute_numerical_sandwich(reserve_in, reserve_out, victim_amount_in, cfg, tx_cost)
-            .map(|result| result.frontrun_amount)
-            .unwrap_or(0)
+        compute_numerical_sandwich(
+            reserve_in,
+            reserve_out,
+            victim_amount_in,
+            cfg,
+            tx_cost_per_leg,
+        )
+        .map(|result| result.frontrun_amount)
+        .unwrap_or(0)
     }
 
     #[test]
@@ -375,39 +423,44 @@ mod tests {
         for &(reserve_in, reserve_out, victim) in &scenarios {
             for &fee_rate in &fee_rates {
                 let cfg = MultiFeeConfig::single(fee_rate, 10_000);
-                for &tx_cost in &tx_costs {
-                    let numerical =
-                        compute_numerical_sandwich(reserve_in, reserve_out, victim, &cfg, tx_cost);
+                for &tx_cost_per_leg in &tx_costs {
+                    let numerical = compute_numerical_sandwich(
+                        reserve_in,
+                        reserve_out,
+                        victim,
+                        &cfg,
+                        tx_cost_per_leg,
+                    );
                     let grid = compute_grid_sandwich(
                         reserve_in,
                         reserve_out,
                         victim,
                         &cfg,
-                        tx_cost,
+                        tx_cost_per_leg,
                         reserve_in as u64,
                     );
 
                     match (numerical, grid) {
                         (Some(numerical), Some(grid)) => assert!(
                             numerical.net_profit >= grid.net_profit - tolerance,
-                            "numerical={} grid={} r_in={} r_out={} victim={} fee={} tx_cost={}",
+                            "numerical={} grid={} r_in={} r_out={} victim={} fee={} tx_cost_per_leg={}",
                             numerical.net_profit,
                             grid.net_profit,
                             reserve_in,
                             reserve_out,
                             victim,
                             fee_rate,
-                            tx_cost
+                            tx_cost_per_leg
                         ),
                         (None, Some(grid)) => assert!(
                             grid.net_profit <= tolerance,
-                            "numerical none but grid profitable={} r_in={} r_out={} victim={} fee={} tx_cost={}",
+                            "numerical none but grid profitable={} r_in={} r_out={} victim={} fee={} tx_cost_per_leg={}",
                             grid.net_profit,
                             reserve_in,
                             reserve_out,
                             victim,
                             fee_rate,
-                            tx_cost
+                            tx_cost_per_leg
                         ),
                         _ => {}
                     }
@@ -472,10 +525,10 @@ mod tests {
         let r_out = 100_000u128;
         let victim = 100u128;
         let cfg = cfg_30bps();
-        let tx_cost = 0u128;
+        let tx_cost_per_leg = 0u128;
 
-        let v_num = numerical_frontrun_amount(r_in, r_out, victim, &cfg, tx_cost);
-        let p_num = net_profit(r_in, r_out, victim, &cfg, tx_cost, v_num);
+        let v_num = numerical_frontrun_amount(r_in, r_out, victim, &cfg, tx_cost_per_leg);
+        let p_num = net_profit(r_in, r_out, victim, &cfg, tx_cost_per_leg, v_num);
 
         // Zhou closed-form (phi = 0.003).
         let phi = 0.003f64;
@@ -483,7 +536,7 @@ mod tests {
         let x = r_in as f64;
         let v = victim as f64;
         let v_zhou = ((x * v) / ((x * (x + one_minus_phi * v)).sqrt() + x)) as u128;
-        let p_zhou = net_profit(r_in, r_out, victim, &cfg, tx_cost, v_zhou);
+        let p_zhou = net_profit(r_in, r_out, victim, &cfg, tx_cost_per_leg, v_zhou);
 
         // Numerical must be at least as good as Zhou.
         assert!(
@@ -551,8 +604,8 @@ mod tests {
         );
     }
 
-    /// High `tx_cost` should drive the optimizer to give up (return 0) when
-    /// the most profitable frontrun still cannot cover 2 * tx_cost.
+    /// High `tx_cost_per_leg` should drive the optimizer to give up (return 0) when
+    /// the most profitable frontrun still cannot cover 2 * tx_cost_per_leg.
     /// DIAGNOSTIC: print net-profit curve to confirm the "plateau in the
     /// millions" reported by an earlier agent. Run via:
     /// `cargo test -p amm-math diagnose_plateau -- --nocapture`.

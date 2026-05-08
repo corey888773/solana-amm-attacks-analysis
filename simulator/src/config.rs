@@ -72,8 +72,16 @@ pub enum SwapDirection {
 pub struct CostParams {
     #[serde(default)]
     pub base_fee_lamports: u64,
+    /// Explicit priority fee per transaction leg, in lamports.
     #[serde(default)]
     pub priority_fee_lamports: u64,
+    /// Optional compute-budget priority fee model:
+    /// `ceil(compute_unit_limit * compute_unit_price_micro_lamports / 1_000_000)`.
+    #[serde(default)]
+    pub compute_unit_limit: u64,
+    #[serde(default)]
+    pub compute_unit_price_micro_lamports: u64,
+    /// Optional Jito tip per transaction leg, in lamports.
     #[serde(default)]
     pub jito_tip_lamports: u64,
     /// Price of 1 SOL expressed in units of the input token (the token the attacker pays in).
@@ -86,20 +94,45 @@ pub struct CostParams {
 }
 
 impl CostParams {
-    /// Sum of all lamport-denominated fees (base + priority + Jito tip), in lamports.
-    pub fn total_lamports(&self) -> u64 {
-        self.base_fee_lamports + self.priority_fee_lamports + self.jito_tip_lamports
+    /// Compute-budget priority fee per transaction leg, in lamports.
+    pub fn compute_unit_fee_lamports(&self) -> u64 {
+        let microlamports = u128::from(self.compute_unit_limit)
+            .saturating_mul(u128::from(self.compute_unit_price_micro_lamports));
+        microlamports.div_ceil(1_000_000).min(u64::MAX as u128) as u64
     }
 
-    /// Convert total lamport cost into input-token units (smallest denomination of token_in).
+    /// Cost of one transaction leg (frontrun or backrun), in lamports.
+    pub fn per_leg_lamports(&self) -> u64 {
+        self.base_fee_lamports
+            .saturating_add(self.priority_fee_lamports)
+            .saturating_add(self.compute_unit_fee_lamports())
+            .saturating_add(self.jito_tip_lamports)
+    }
+
+    /// Total sandwich transaction cost (frontrun + backrun), in lamports.
+    pub fn total_sandwich_lamports(&self) -> u64 {
+        self.per_leg_lamports().saturating_mul(2)
+    }
+
+    /// Convert lamport cost into input-token units (smallest denomination of token_in).
     ///
-    /// Formula: `(total_lamports / 1e9) * input_token_per_sol`, cast to u64.
+    /// Formula: `(lamports / 1e9) * input_token_per_sol`, cast to u64.
     /// Note: 1 SOL = 1_000_000_000 lamports. `input_token_per_sol` is the price of 1 SOL
     /// denominated in the input token's base units (already accounting for that token's
     /// decimals where applicable — see config comment).
-    pub fn total_in_input_token(&self) -> u64 {
-        let lamports = self.total_lamports() as f64;
+    pub fn lamports_to_input_token(&self, lamports: u64) -> u64 {
+        let lamports = lamports as f64;
         (lamports / 1_000_000_000.0 * self.input_token_per_sol) as u64
+    }
+
+    /// Cost of one transaction leg in input-token units.
+    pub fn per_leg_in_input_token(&self) -> u64 {
+        self.lamports_to_input_token(self.per_leg_lamports())
+    }
+
+    /// Total sandwich cost in input-token units.
+    pub fn total_sandwich_in_input_token(&self) -> u64 {
+        self.lamports_to_input_token(self.total_sandwich_lamports())
     }
 }
 
@@ -165,5 +198,28 @@ impl SimConfig {
         }
 
         figment.merge(Env::prefixed("MEV_").split("_")).extract()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cost_model_separates_per_leg_and_total() {
+        let costs = CostParams {
+            base_fee_lamports: 5_000,
+            priority_fee_lamports: 10_000,
+            compute_unit_limit: 200_000,
+            compute_unit_price_micro_lamports: 50_000,
+            jito_tip_lamports: 1_000,
+            input_token_per_sol: 1_000_000_000.0,
+        };
+
+        assert_eq!(costs.compute_unit_fee_lamports(), 10_000);
+        assert_eq!(costs.per_leg_lamports(), 26_000);
+        assert_eq!(costs.total_sandwich_lamports(), 52_000);
+        assert_eq!(costs.per_leg_in_input_token(), 26_000);
+        assert_eq!(costs.total_sandwich_in_input_token(), 52_000);
     }
 }

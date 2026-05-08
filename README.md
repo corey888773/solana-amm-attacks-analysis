@@ -116,7 +116,9 @@ flowchart LR
 ```
 
 **Per-scenario metrics:**
-- `attacker_pnl = A_out − dA_f − fees − tip`
+- `tx_cost_per_leg = base_fee + priority_fee + compute_units × microLamports/CU + jito_tip`
+- `tx_cost_total = 2 × tx_cost_per_leg`
+- `attacker_net_profit = attacker_gross_profit − tx_cost_total`
 - `victim_slippage = price_2 / price_0 − 1`
 - swap aborts if `victim_slippage > slippage_tolerance_bps`
 
