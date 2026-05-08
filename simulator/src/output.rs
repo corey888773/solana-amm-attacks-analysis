@@ -35,10 +35,12 @@ pub struct SimulationRecord {
     pub victim_slippage_tolerance_bps: u16,
 
     // Attacker results
+    pub strategy: String,
     pub frontrun_amount: u64,
     pub attacker_gross_profit: i64,
     pub attacker_net_profit: i64,
     pub attack_profitable: bool,
+    pub attack_feasible: bool,
     pub attack_status: AttackStatus,
 
     // Victim results
@@ -46,6 +48,11 @@ pub struct SimulationRecord {
     pub victim_amount_out_with_attack: u64,
     pub victim_extra_slippage_bps: u64,
     pub victim_loss_absolute: u64,
+    pub victim_reverted: bool,
+    pub victim_size_bps_of_reserve: u64,
+    pub frontrun_size_bps_of_reserve: u64,
+    pub net_profit_bps_of_frontrun: i64,
+    pub victim_loss_bps_of_fair_out: u64,
 
     // Pool state
     pub price_before: f64,

@@ -8,6 +8,29 @@ use crate::config::{AttackerStrategy, SimConfig};
 use crate::output::{AttackStatus, SimulationRecord};
 use crate::scenarios::Scenario;
 
+fn bps_u64(numerator: u64, denominator: u64) -> u64 {
+    if denominator == 0 {
+        return 0;
+    }
+    (u128::from(numerator) * 10_000 / u128::from(denominator)).min(u64::MAX as u128) as u64
+}
+
+fn bps_i64(numerator: i64, denominator: u64) -> i64 {
+    if denominator == 0 {
+        return 0;
+    }
+    let value = i128::from(numerator) * 10_000 / i128::from(denominator);
+    value.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
+}
+
+fn strategy_label(strategy: &AttackerStrategy) -> &'static str {
+    match strategy {
+        AttackerStrategy::ClosedForm => "closed_form",
+        AttackerStrategy::Numerical => "numerical",
+        AttackerStrategy::Fixed => "fixed",
+    }
+}
+
 /// Apply a single CPMM swap using the multi-fee math
 /// (`amm_math::multi_fee::compute_swap_multi_fee`) and return the post-swap
 /// reserves alongside the price-impact bps. Returns `None` for any degenerate
@@ -43,6 +66,7 @@ fn no_attack_record(
     fair_swap: &SwapResult,
     iteration: u32,
     status: AttackStatus,
+    strategy: &AttackerStrategy,
 ) -> SimulationRecord {
     let fair_out = fair_swap.amount_out.min(u64::MAX as u128) as u64;
     let price = pool.spot_price();
@@ -56,15 +80,22 @@ fn no_attack_record(
         fee_denominator: cfg.fee_denominator,
         victim_amount: scenario.victim_swap_amount,
         victim_slippage_tolerance_bps: scenario.victim_slippage_bps,
+        strategy: strategy_label(strategy).to_string(),
         frontrun_amount: 0,
         attacker_gross_profit: 0,
         attacker_net_profit: 0,
         attack_profitable: false,
+        attack_feasible: false,
         attack_status: status,
         victim_amount_out_no_attack: fair_out,
         victim_amount_out_with_attack: fair_out,
         victim_extra_slippage_bps: 0,
         victim_loss_absolute: 0,
+        victim_reverted: false,
+        victim_size_bps_of_reserve: bps_u64(scenario.victim_swap_amount, scenario.pool_reserve_a),
+        frontrun_size_bps_of_reserve: 0,
+        net_profit_bps_of_frontrun: 0,
+        victim_loss_bps_of_fair_out: 0,
         price_before: price,
         price_after_attack: price,
         price_impact_bps: 0,
@@ -111,6 +142,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
                     &fair_swap,
                     iteration,
                     AttackStatus::NoProfitableAttack,
+                    &config.attacker.strategy,
                 ));
             }
         },
@@ -130,6 +162,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
                     &fair_swap,
                     iteration,
                     AttackStatus::NoProfitableAttack,
+                    &config.attacker.strategy,
                 ));
             }
         },
@@ -143,6 +176,7 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
                     &fair_swap,
                     iteration,
                     AttackStatus::NoAttackConfigured,
+                    &config.attacker.strategy,
                 ));
             }
         },
@@ -176,6 +210,8 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
     } else {
         0
     };
+    let victim_reverted = victim_extra_slippage_bps > u64::from(scenario.victim_slippage_bps);
+    let attack_feasible = !victim_reverted;
 
     Some(SimulationRecord {
         pool_reserve_a: scenario.pool_reserve_a,
@@ -186,15 +222,22 @@ fn run_single(scenario: &Scenario, config: &SimConfig, iteration: u32) -> Option
         fee_denominator: cfg.fee_denominator,
         victim_amount: scenario.victim_swap_amount,
         victim_slippage_tolerance_bps: scenario.victim_slippage_bps,
+        strategy: strategy_label(&config.attacker.strategy).to_string(),
         frontrun_amount,
         attacker_gross_profit: gross_profit,
         attacker_net_profit: net_profit,
         attack_profitable: net_profit > 0,
+        attack_feasible,
         attack_status: AttackStatus::Executed,
         victim_amount_out_no_attack: fair_out,
         victim_amount_out_with_attack: sandwiched_out,
         victim_extra_slippage_bps,
         victim_loss_absolute: victim_loss,
+        victim_reverted,
+        victim_size_bps_of_reserve: bps_u64(scenario.victim_swap_amount, scenario.pool_reserve_a),
+        frontrun_size_bps_of_reserve: bps_u64(frontrun_amount, scenario.pool_reserve_a),
+        net_profit_bps_of_frontrun: bps_i64(net_profit, frontrun_amount),
+        victim_loss_bps_of_fair_out: bps_u64(victim_loss, fair_out),
         price_before: pool.spot_price(),
         price_after_attack: backrun.new_reserve_out as f64 / backrun.new_reserve_in as f64,
         price_impact_bps: frontrun.price_impact_bps + victim_sandwiched.price_impact_bps,
@@ -278,6 +321,9 @@ mod tests {
         assert_eq!(records[0].attack_status, AttackStatus::NoProfitableAttack);
         assert_eq!(records[0].frontrun_amount, 0);
         assert!(!records[0].attack_profitable);
+        assert!(!records[0].attack_feasible);
+        assert!(!records[0].victim_reverted);
+        assert_eq!(records[0].strategy, "numerical");
         assert_eq!(
             records[0].victim_amount_out_no_attack,
             records[0].victim_amount_out_with_attack
@@ -292,5 +338,27 @@ mod tests {
         assert_eq!(records[0].attack_status, AttackStatus::NoAttackConfigured);
         assert_eq!(records[0].frontrun_amount, 0);
         assert_eq!(records[0].attacker_net_profit, 0);
+        assert_eq!(records[0].strategy, "fixed");
+    }
+
+    #[test]
+    fn attack_feasibility_tracks_victim_slippage_tolerance() {
+        let mut s = scenario(0);
+        s.victim_swap_amount = 50_000;
+        s.victim_slippage_bps = 1;
+
+        let records = run_scenario(&s, &cfg(AttackerStrategy::Fixed, Some(50_000)));
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].attack_status, AttackStatus::Executed);
+        assert!(records[0].victim_extra_slippage_bps > u64::from(s.victim_slippage_bps));
+        assert!(records[0].victim_reverted);
+        assert!(!records[0].attack_feasible);
+        assert_eq!(
+            records[0].victim_loss_bps_of_fair_out,
+            records[0].victim_extra_slippage_bps
+        );
+        assert!(records[0].victim_size_bps_of_reserve > 0);
+        assert!(records[0].frontrun_size_bps_of_reserve > 0);
     }
 }

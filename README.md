@@ -120,12 +120,16 @@ flowchart LR
 - `tx_cost_total = 2 × tx_cost_per_leg`
 - `attacker_net_profit = attacker_gross_profit − tx_cost_total`
 - `victim_slippage = price_2 / price_0 − 1`
-- swap aborts if `victim_slippage > slippage_tolerance_bps`
+- `attack_feasible = victim_extra_slippage_bps <= slippage_tolerance_bps`
+- `victim_reverted = !attack_feasible`
 
 Each valid scenario records a CSV row. `attack_status` distinguishes an
 executed attack from `no_profitable_attack` or `no_attack_configured`; no-attack
 rows keep `frontrun_amount = 0`, zero attacker/victim loss metrics, and the
-configured `tx_cost_total` for traceability.
+configured `tx_cost_per_leg` / `tx_cost_total` for traceability. CSV output also
+includes normalized fields such as `victim_size_bps_of_reserve`,
+`frontrun_size_bps_of_reserve`, `net_profit_bps_of_frontrun`, and
+`victim_loss_bps_of_fair_out`.
 
 ## Directory structure
 
