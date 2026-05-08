@@ -1,11 +1,6 @@
-mod config;
-mod engine;
-mod output;
-mod real_pool;
-mod scenarios;
-
 use clap::Parser;
 use rayon::prelude::*;
+use simulator::{config, engine, output, scenarios};
 use std::path::PathBuf;
 
 #[derive(Parser)]
