@@ -183,6 +183,11 @@ cargo run -p simulator --bin compare_real_pool -- \
   -c configs/sweep_real_pool.toml \
   -o results/real_pool_comparison.csv
 
+# Evaluate decoded historical Raydium CPMM candidates
+cargo run -p simulator --bin evaluate_historical_cpmm -- \
+  -i results/historical_cpmm_decoded.csv \
+  -o results/historical_cpmm_candidates.csv
+
 # Closed-form vs numerical optimizer benchmark CSV
 cargo run -p simulator --example bench_zhou_vs_numerical -- \
   -o results/zhou_vs_numerical.csv
