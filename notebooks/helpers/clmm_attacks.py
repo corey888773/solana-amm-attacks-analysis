@@ -96,6 +96,37 @@ def best_attempt_summary(df: pd.DataFrame) -> pd.DataFrame:
     return counts.to_frame().join(agg).reset_index()
 
 
+def replay_validation_summary(df: pd.DataFrame) -> dict:
+    """Replay error stats over rows where the model actually ran.
+
+    `replay_error_bps` is `|fair_amount_out - actual_amount_out| /
+    actual_amount_out * 10000`. Computed for every row with usable
+    pre-state, regardless of model_status. The pipeline rejects rows
+    above `--replay-tolerance-bps` (default 100) as
+    `victim_replay_mismatch`.
+    """
+    if "replay_error_bps" not in df:
+        return {}
+    err = pd.to_numeric(df["replay_error_bps"], errors="coerce").dropna()
+    if err.empty:
+        return {}
+    evaluated_mask = df["model_status"].astype(str).eq("evaluated")
+    evaluated_err = pd.to_numeric(
+        df.loc[evaluated_mask, "replay_error_bps"], errors="coerce",
+    ).dropna()
+    return {
+        "n_with_replay": int(len(err)),
+        "n_evaluated": int(len(evaluated_err)),
+        "median_bps": float(evaluated_err.median()) if len(evaluated_err) else None,
+        "mean_bps": float(evaluated_err.mean()) if len(evaluated_err) else None,
+        "p95_bps": float(evaluated_err.quantile(0.95)) if len(evaluated_err) else None,
+        "max_bps": float(evaluated_err.max()) if len(evaluated_err) else None,
+        "outliers_rejected": int(
+            (df.get("rejection_reason", "") == "victim_replay_mismatch").sum()
+        ),
+    }
+
+
 def fee_drag_vs_gross(df: pd.DataFrame) -> pd.Series:
     """Distribution of (best_attempt_gross_profit - fee_drag).
 
