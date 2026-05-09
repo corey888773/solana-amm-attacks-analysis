@@ -226,7 +226,9 @@ Notebook analysis:
 cd notebooks
 uv sync
 uv run jupyter lab
-# Main thesis charts: open 03_hypothesis_results.ipynb
+# 01: synthetic AMM simulator parameter analysis
+# 02: Raydium CPMM snapshot + historical candidate analysis
+# 03: CLMM historical analysis scaffold
 ```
 
 Some fork tests skip gracefully when `fork/cache/` fixtures or the Raydium
