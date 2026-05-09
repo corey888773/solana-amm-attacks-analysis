@@ -27,13 +27,16 @@ impl CachedAccount {
     }
 
     pub fn read(path: &Path) -> Result<Self> {
-        let raw = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&raw).context("deserialize CachedAccount")
     }
 
     pub fn data_bytes(&self) -> Result<Vec<u8>> {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
-        STANDARD.decode(&self.data_b64).context("base64 decode account data")
+        STANDARD
+            .decode(&self.data_b64)
+            .context("base64 decode account data")
     }
 }
 
@@ -61,7 +64,9 @@ impl AccountFetcher {
             .get_account_with_commitment(key, CommitmentConfig::finalized())
             .with_context(|| format!("rpc get_account {}", key))?;
         let slot = resp.context.slot;
-        let acc = resp.value.with_context(|| format!("account {} not found on mainnet", key))?;
+        let acc = resp
+            .value
+            .with_context(|| format!("account {} not found on mainnet", key))?;
         let cached = CachedAccount {
             pubkey: key.to_string(),
             slot,

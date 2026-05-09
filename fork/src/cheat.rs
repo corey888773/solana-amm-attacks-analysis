@@ -31,8 +31,8 @@ pub fn build_token_account(mint: &Pubkey, owner: &Pubkey, amount: u64) -> Vec<u8
     data[64..72].copy_from_slice(&amount.to_le_bytes());
     // delegate: COption::None = [0,0,0,0] then 32 zero bytes (already 0)
     data[108] = 1; // state = Initialized
-    // is_native: COption::None = [0,0,0,0] (already 0)
-    // delegated_amount, close_auth: 0 (already 0)
+                   // is_native: COption::None = [0,0,0,0] (already 0)
+                   // delegated_amount, close_auth: 0 (already 0)
     data
 }
 
@@ -53,7 +53,8 @@ pub fn fund_token_account(
         executable: false,
         rent_epoch: 0,
     };
-    svm.set_account(*address, acc).map_err(|e| anyhow::anyhow!("set_account: {:?}", e))?;
+    svm.set_account(*address, acc)
+        .map_err(|e| anyhow::anyhow!("set_account: {:?}", e))?;
     Ok(())
 }
 

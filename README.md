@@ -147,10 +147,10 @@ magisterka/
 │       └── src/instructions/, src/state/
 ├── simulator/              # CLI binary `mev-sim`
 │   └── src/{main,config,engine,real_pool,scenarios,output}.rs
-├── fork/                   # Raydium CPMM snapshot + LiteSVM replay tooling
+├── fork/                   # Raydium CPMM snapshot, LiteSVM replay, historical decode tooling
 │   └── src/{account_fetcher,cheat,instructions,pool,
-│            programs,state_loader}.rs
-│   └── src/bin/snapshot.rs
+│            programs,state_loader,historical_cpmm}.rs
+│   └── src/bin/{snapshot,historical_cpmm}.rs
 ├── configs/                # TOML inputs
 │   ├── default.toml
 │   ├── sweep_liquidity.toml
@@ -182,6 +182,20 @@ cargo run --bin mev-sim -- -c configs/sweep_real_pool.toml --parallel
 cargo run -p simulator --bin compare_real_pool -- \
   -c configs/sweep_real_pool.toml \
   -o results/real_pool_comparison.csv
+
+# Collect/decode historical Raydium CPMM candidate inputs
+cargo run -p fork --bin historical_cpmm -- run-all \
+  --pool wsol_surge \
+  --limit-per-pool 100 \
+  --tx-cost-per-leg 0
+
+# Collect/decode historical Raydium CLMM swap observations
+# This is decode/coverage evidence only until historical tick-array pre-state
+# and CLMM replay validation are implemented.
+cargo run -p fork --bin historical_clmm -- run-all \
+  --pool clmm_wsol_usdc \
+  --limit-per-pool 50 \
+  --tx-cost-per-leg 0
 
 # Evaluate decoded historical Raydium CPMM candidates
 cargo run -p simulator --bin evaluate_historical_cpmm -- \
@@ -218,6 +232,46 @@ solana program dump \
   CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C \
   fork/cache/programs/raydium_cpmm.so \
   --url mainnet-beta
+
+# Historical CPMM pipeline stages. The final decoded CSV is evaluator input;
+# status/summary CSVs remain useful even when no candidate survives filtering.
+cargo run -p fork --bin historical_cpmm -- collect-signatures --pool wsol_surge
+cargo run -p fork --bin historical_cpmm -- fetch-transactions
+cargo run -p fork --bin historical_cpmm -- build-decoded --tx-cost-per-leg 0
+
+# Historical CLMM pipeline stages. Decoded rows are swap observations, not
+# profitability candidates yet.
+cargo run -p fork --bin historical_clmm -- collect-signatures --pool clmm_wsol_usdc
+cargo run -p fork --bin historical_clmm -- fetch-transactions
+cargo run -p fork --bin historical_clmm -- build-decoded --tx-cost-per-leg 0
+cargo run -p fork --bin historical_clmm -- probe-state
+
+# Live CLMM pre-state collector for short archive windows. Run before/through
+# the observation window; usable candidates are swaps whose required accounts
+# were already present in a previous snapshot.
+cargo run -p fork --bin historical_clmm -- \
+  --pool clmm_wsol_usdc \
+  --cache-root fork/cache/historical_clmm_live \
+  --results-dir results \
+  live-collect \
+  --duration-seconds 28800 \
+  --interval-seconds 10 \
+  --poll-limit 50
+
+# Build a readiness CSV from the live collector output. This is still not
+# profitability; it only selects decoded swaps with a usable previous snapshot.
+cargo run -p fork --bin historical_clmm -- \
+  --results-dir results \
+  build-live-candidates
+
+# Evaluate live-ready CLMM rows with the first conservative CLMM attack model.
+# Rows that fail readiness or victim replay remain in the CSV as rejected.
+cargo run -p fork --bin historical_clmm -- \
+  --results-dir results \
+  --tx-cost-per-leg 0 \
+  evaluate-live-attacks \
+  --max-steps 200 \
+  --replay-tolerance-bps 100
 ```
 
 Notebook analysis:
@@ -228,7 +282,7 @@ uv sync
 uv run jupyter lab
 # 01: synthetic AMM simulator parameter analysis
 # 02: Raydium CPMM snapshot + historical candidate analysis
-# 03: CLMM historical analysis scaffold
+# 03: CLMM historical decode coverage and future counterfactual analysis
 ```
 
 Some fork tests skip gracefully when `fork/cache/` fixtures or the Raydium
@@ -243,6 +297,7 @@ AMM LiteSVM test uses `target/deploy/amm.so`.
 - LiteSVM 0.11 — in-process Solana VM for custom AMM and Raydium CPMM replay
 - CLI stack: `clap` (args), `figment` (TOML config), `rayon` (parallel
   sweeps), `csv` + `serde` (output), `itertools` (combinatorics)
-- Raydium CPMM decoding: `carbon-raydium-cpmm-decoder` 0.12
+- Raydium CPMM/CLMM decoding: `carbon-raydium-cpmm-decoder` 0.12,
+  `carbon-raydium-clmm-decoder` 0.12
 - `proptest` for math-invariant testing in `amm-math`
 - Python notebooks via `uv`, Jupyter, pandas, matplotlib, seaborn

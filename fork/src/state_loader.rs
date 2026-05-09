@@ -9,7 +9,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::account_fetcher::CachedAccount;
-use crate::pool::{PoolManifest, RaydiumCpmmPool};
+use crate::pool::RaydiumCpmmPool;
 
 /// Read the cached pool state account and return its `open_time` field.
 /// Used by the legacy-snapshot fallback so we can pick a timestamp that
@@ -80,53 +80,10 @@ pub fn load_raydium_cpmm_pool(
     Ok(())
 }
 
-impl RaydiumCpmmPool {
-    pub fn from_manifest(manifest: PoolManifest) -> Result<Self> {
-        Ok(Self {
-            pool_pubkey: Pubkey::from_str(&manifest.pool_address)?,
-            mint_a: Pubkey::from_str(&manifest.mint_a)?,
-            mint_b: Pubkey::from_str(&manifest.mint_b)?,
-            vault_a: Pubkey::from_str(&manifest.vault_a)?,
-            vault_b: Pubkey::from_str(&manifest.vault_b)?,
-            amm_config: Pubkey::from_str(&manifest.amm_config)?,
-            observation_state: manifest
-                .observation_state
-                .as_deref()
-                .map(Pubkey::from_str)
-                .transpose()?,
-            lp_mint: manifest
-                .lp_mint
-                .as_deref()
-                .map(Pubkey::from_str)
-                .transpose()?,
-            manifest,
-        })
-    }
-
-    /// All non-program account pubkeys that make up this pool's state.
-    /// Used by snapshot CLI (fetch loop) and state_loader (replay loop).
-    pub fn account_set(&self) -> Vec<Pubkey> {
-        let mut keys = vec![
-            self.pool_pubkey,
-            self.mint_a,
-            self.mint_b,
-            self.vault_a,
-            self.vault_b,
-            self.amm_config,
-        ];
-        if let Some(o) = self.observation_state {
-            keys.push(o);
-        }
-        if let Some(lp) = self.lp_mint {
-            keys.push(lp);
-        }
-        keys
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pool::PoolManifest;
 
     fn manifest(observation: Option<&str>, lp: Option<&str>) -> PoolManifest {
         PoolManifest {
@@ -172,8 +129,8 @@ mod tests {
     /// present; otherwise skips (no synthetic PoolState fixture maintained).
     #[test]
     fn fallback_derives_timestamp_from_pool_open_time() {
-        let cache_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("cache/pools/wsol_surge");
+        let cache_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cache/pools/wsol_surge");
         if !cache_dir.join("manifest.json").exists() {
             eprintln!("skip: wsol_surge cache missing — run snapshot CLI first");
             return;

@@ -37,7 +37,9 @@ fn skip_if_missing() -> bool {
 
 #[test]
 fn load_wsol_surge_into_litesvm() {
-    if skip_if_missing() { return; }
+    if skip_if_missing() {
+        return;
+    }
 
     let manifest = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
     let pool = RaydiumCpmmPool::from_manifest(manifest).unwrap();
@@ -53,7 +55,9 @@ fn load_wsol_surge_into_litesvm() {
         .expect("load_raydium_cpmm_pool");
 
     // Pool account is queryable from LiteSVM
-    let pool_acc = svm.get_account(&pool.pool_pubkey).expect("pool account in svm");
+    let pool_acc = svm
+        .get_account(&pool.pool_pubkey)
+        .expect("pool account in svm");
     assert_eq!(
         pool_acc.owner.to_string(),
         "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
@@ -69,7 +73,9 @@ fn load_wsol_surge_into_litesvm() {
 
     // Vaults queryable + token-program-owned
     for vault in [pool.vault_a, pool.vault_b] {
-        let v = svm.get_account(&vault).unwrap_or_else(|| panic!("vault {} missing", vault));
+        let v = svm
+            .get_account(&vault)
+            .unwrap_or_else(|| panic!("vault {} missing", vault));
         assert_eq!(
             v.owner.to_string(),
             "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -81,7 +87,9 @@ fn load_wsol_surge_into_litesvm() {
 
     // Mints queryable + 82 bytes
     for mint in [pool.mint_a, pool.mint_b] {
-        let m = svm.get_account(&mint).unwrap_or_else(|| panic!("mint {} missing", mint));
+        let m = svm
+            .get_account(&mint)
+            .unwrap_or_else(|| panic!("mint {} missing", mint));
         assert_eq!(m.data.len(), 82, "SPL mint = 82 bytes");
     }
 
@@ -96,12 +104,18 @@ fn vault_token_balances_match_pool_pricing() {
     // The vault SPL Token accounts hold u64 amounts at offset 64 (after mint=32 + owner=32).
     // We sanity-check that both vaults have non-zero balances — i.e. the snapshot
     // captured a live, funded pool.
-    if skip_if_missing() { return; }
+    if skip_if_missing() {
+        return;
+    }
 
     let manifest = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
     let pool = RaydiumCpmmPool::from_manifest(manifest).unwrap();
 
-    let mut svm = LiteSVM::default().with_builtins().with_sysvars().with_sigverify(false).with_blockhash_check(false);
+    let mut svm = LiteSVM::default()
+        .with_builtins()
+        .with_sysvars()
+        .with_sigverify(false)
+        .with_blockhash_check(false);
     load_raydium_cpmm_pool(&mut svm, &pool, &snapshot_dir(), &cpmm_so()).unwrap();
 
     let vault_a = svm.get_account(&pool.vault_a).unwrap();
@@ -112,5 +126,8 @@ fn vault_token_balances_match_pool_pricing() {
 
     assert!(amount_a > 0, "vault_a empty");
     assert!(amount_b > 0, "vault_b empty");
-    println!("Vault balances: a={} (raw u64), b={} (raw u64)", amount_a, amount_b);
+    println!(
+        "Vault balances: a={} (raw u64), b={} (raw u64)",
+        amount_a, amount_b
+    );
 }

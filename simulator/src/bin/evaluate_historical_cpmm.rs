@@ -1,6 +1,7 @@
 use amm_math::multi_fee::{compute_swap_multi_fee, CreatorFeeMode, MultiFeeConfig};
 use amm_math::sandwich::compute_numerical_sandwich;
 use clap::Parser;
+use csv::WriterBuilder;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -236,7 +237,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = cli.output.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    let mut writer = csv::Writer::from_path(&cli.output)?;
+    let mut writer = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(&cli.output)?;
+    writer.write_record([
+        "pool_type",
+        "pool_label",
+        "pool_address",
+        "slot",
+        "signature",
+        "block_time",
+        "instruction_index",
+        "direction",
+        "amount_in",
+        "min_amount_out",
+        "actual_amount_out",
+        "reserve_in_before",
+        "reserve_out_before",
+        "trade_fee_rate",
+        "creator_fee_rate",
+        "fee_denominator",
+        "creator_fee_mode",
+        "tx_cost_per_leg",
+        "tx_cost_total",
+        "fair_amount_out",
+        "victim_size_bps_of_reserve",
+        "victim_slippage_tolerance_bps",
+        "optimal_frontrun",
+        "attacker_gross_profit",
+        "attacker_net_profit",
+        "victim_loss_absolute",
+        "victim_extra_slippage_bps",
+        "attack_feasible",
+        "attack_profitable",
+        "below_candidate_threshold",
+        "inclusion_reason",
+        "exclusion_reason",
+    ])?;
 
     let mut rows = 0usize;
     for row in reader.deserialize::<CandidateRow>() {

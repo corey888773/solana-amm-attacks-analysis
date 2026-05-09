@@ -33,21 +33,32 @@ fn skip_if_no_snapshot() -> bool {
 
 #[test]
 fn manifest_pool_address_matches_known_target() {
-    if skip_if_no_snapshot() { return; }
+    if skip_if_no_snapshot() {
+        return;
+    }
     let m = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
-    assert_eq!(m.pool_address, "BScfGKZf9YDfpL11hZQnCQPskPrdeyFcvCjSA5qupEH5");
+    assert_eq!(
+        m.pool_address,
+        "BScfGKZf9YDfpL11hZQnCQPskPrdeyFcvCjSA5qupEH5"
+    );
     assert_eq!(m.program_id, "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
     // WSOL is one of the two mints
     let wsol = "So11111111111111111111111111111111111111112";
-    assert!(m.mint_a == wsol || m.mint_b == wsol, "WSOL must be one of the mints");
+    assert!(
+        m.mint_a == wsol || m.mint_b == wsol,
+        "WSOL must be one of the mints"
+    );
 }
 
 #[test]
 fn pool_state_deserializes_and_matches_manifest() {
-    if skip_if_no_snapshot() { return; }
+    if skip_if_no_snapshot() {
+        return;
+    }
     let m = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
 
-    let pool_acc = CachedAccount::read(&snapshot_dir().join(format!("{}.json", m.pool_address))).unwrap();
+    let pool_acc =
+        CachedAccount::read(&snapshot_dir().join(format!("{}.json", m.pool_address))).unwrap();
     assert_eq!(pool_acc.owner, m.program_id, "pool owned by CPMM program");
 
     let data = pool_acc.data_bytes().unwrap();
@@ -72,24 +83,37 @@ fn pool_state_deserializes_and_matches_manifest() {
 
 #[test]
 fn amm_config_deserializes() {
-    if skip_if_no_snapshot() { return; }
+    if skip_if_no_snapshot() {
+        return;
+    }
     let m = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
-    let cfg_acc = CachedAccount::read(&snapshot_dir().join(format!("{}.json", m.amm_config))).unwrap();
+    let cfg_acc =
+        CachedAccount::read(&snapshot_dir().join(format!("{}.json", m.amm_config))).unwrap();
     let data = cfg_acc.data_bytes().unwrap();
     let cfg = AmmConfig::deserialize(&data).expect("AmmConfig deser");
 
     // Trade fee should be in a sane range. CPMM uses 1e6 denominator, so
     // 2500 = 0.25%, 3000 = 0.30%. We expect <= 5% (50000).
-    assert!(cfg.trade_fee_rate <= 50_000, "trade_fee_rate {} out of sane range", cfg.trade_fee_rate);
+    assert!(
+        cfg.trade_fee_rate <= 50_000,
+        "trade_fee_rate {} out of sane range",
+        cfg.trade_fee_rate
+    );
     println!(
         "AmmConfig OK: trade_fee={} protocol_fee={} fund_fee={} creator_fee={} create_pool_fee={}",
-        cfg.trade_fee_rate, cfg.protocol_fee_rate, cfg.fund_fee_rate, cfg.creator_fee_rate, cfg.create_pool_fee
+        cfg.trade_fee_rate,
+        cfg.protocol_fee_rate,
+        cfg.fund_fee_rate,
+        cfg.creator_fee_rate,
+        cfg.create_pool_fee
     );
 }
 
 #[test]
 fn raydium_cpmm_pool_loads_from_cached_manifest() {
-    if skip_if_no_snapshot() { return; }
+    if skip_if_no_snapshot() {
+        return;
+    }
     let m = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
     let pool = RaydiumCpmmPool::from_manifest(m).unwrap();
 
@@ -107,7 +131,9 @@ fn raydium_cpmm_pool_loads_from_cached_manifest() {
 fn cached_accounts_have_real_lamports() {
     // Rent-exempt risk mitigation: verify cloned accounts preserve mainnet
     // lamports — zero or absurdly low values would make LiteSVM reject them.
-    if skip_if_no_snapshot() { return; }
+    if skip_if_no_snapshot() {
+        return;
+    }
     let m = PoolManifest::read(&snapshot_dir().join("manifest.json")).unwrap();
     let pool = RaydiumCpmmPool::from_manifest(m).unwrap();
     for key in pool.account_set() {
@@ -115,7 +141,8 @@ fn cached_accounts_have_real_lamports() {
         assert!(
             acc.lamports >= 890_880,
             "account {} has lamports={} — below typical rent-exempt floor",
-            key, acc.lamports
+            key,
+            acc.lamports
         );
         // Pubkey parses
         solana_pubkey::Pubkey::from_str(&acc.pubkey).expect("pubkey parse");
