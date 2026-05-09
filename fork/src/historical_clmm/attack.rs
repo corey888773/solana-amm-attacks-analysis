@@ -52,6 +52,14 @@ pub struct LiveClmmAttackRow {
     pub tick_spacing: Option<u16>,
     pub fair_amount_out: Option<u128>,
     pub replay_error_bps: Option<u64>,
+    pub best_attempt_frontrun: u128,
+    pub best_attempt_frontrun_output: u128,
+    pub best_attempt_backrun_output: u128,
+    pub best_attempt_gross_profit: i128,
+    pub best_attempt_net_profit: i128,
+    pub best_attempt_victim_loss_absolute: u128,
+    pub best_attempt_victim_extra_slippage_bps: u64,
+    pub best_attempt_feasible: bool,
     pub optimal_frontrun: u128,
     pub frontrun_output: u128,
     pub backrun_output: u128,
@@ -309,17 +317,31 @@ fn evaluate_candidate_inner(
     row.fair_amount_out = Some(fair_amount_out);
     row.replay_error_bps = Some(replay_error_bps);
     if let Some(result) = sandwich {
-        row.optimal_frontrun = result.frontrun_amount;
-        row.frontrun_output = result.frontrun_output;
-        row.backrun_output = result.backrun_output;
-        row.attacker_gross_profit = result.gross_profit;
-        row.attacker_net_profit = result.net_profit;
-        row.victim_loss_absolute = result.victim_loss_absolute;
-        row.victim_extra_slippage_bps = result.victim_extra_slippage_bps;
-        row.attack_feasible = result.attack_feasible;
-        row.attack_profitable = result.attack_profitable;
+        row.best_attempt_frontrun = result.frontrun_amount;
+        row.best_attempt_frontrun_output = result.frontrun_output;
+        row.best_attempt_backrun_output = result.backrun_output;
+        row.best_attempt_gross_profit = result.gross_profit;
+        row.best_attempt_net_profit = result.net_profit;
+        row.best_attempt_victim_loss_absolute = result.victim_loss_absolute;
+        row.best_attempt_victim_extra_slippage_bps = result.victim_extra_slippage_bps;
+        row.best_attempt_feasible = result.attack_feasible;
+        if result.attack_profitable {
+            row.optimal_frontrun = result.frontrun_amount;
+            row.frontrun_output = result.frontrun_output;
+            row.backrun_output = result.backrun_output;
+            row.attacker_gross_profit = result.gross_profit;
+            row.attacker_net_profit = result.net_profit;
+            row.victim_loss_absolute = result.victim_loss_absolute;
+            row.victim_extra_slippage_bps = result.victim_extra_slippage_bps;
+            row.attack_feasible = result.attack_feasible;
+            row.attack_profitable = true;
+        } else if !result.attack_feasible {
+            row.rejection_reason = Some("best_attempt_infeasible".to_string());
+        } else {
+            row.rejection_reason = Some("best_attempt_unprofitable".to_string());
+        }
     } else {
-        row.rejection_reason = Some("no_profitable_attack".to_string());
+        row.rejection_reason = Some("no_grid_result".to_string());
     }
     Ok(row)
 }
@@ -355,6 +377,14 @@ fn base_row(
         tick_spacing: None,
         fair_amount_out: None,
         replay_error_bps: None,
+        best_attempt_frontrun: 0,
+        best_attempt_frontrun_output: 0,
+        best_attempt_backrun_output: 0,
+        best_attempt_gross_profit: 0,
+        best_attempt_net_profit: 0,
+        best_attempt_victim_loss_absolute: 0,
+        best_attempt_victim_extra_slippage_bps: 0,
+        best_attempt_feasible: false,
         optimal_frontrun: 0,
         frontrun_output: 0,
         backrun_output: 0,
@@ -613,7 +643,7 @@ fn grid_sandwich(
             best = Some(result);
         }
     }
-    best.filter(|result| result.net_profit > 0)
+    best
 }
 
 fn simulate_sandwich(
