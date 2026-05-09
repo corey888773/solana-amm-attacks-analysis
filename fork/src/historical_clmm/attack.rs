@@ -5,13 +5,18 @@ use crate::historical_clmm::live::{
 use crate::CachedAccount;
 use anyhow::{anyhow, Context, Result};
 use carbon_core::deserialize::CarbonDeserialize;
-use carbon_raydium_clmm_decoder::accounts::{amm_config::AmmConfig, pool_state::PoolState};
+use carbon_raydium_clmm_decoder::accounts::{
+    amm_config::AmmConfig, pool_state::PoolState, tick_array_state::TickArrayState,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 const FEE_DENOMINATOR: f64 = 1_000_000.0;
 const Q64: f64 = 18_446_744_073_709_551_616.0;
+const MODEL_VERSION: &str = "tick_crossing_v1_float";
+const TICK_ARRAY_STATE_DISCRIMINATOR: [u8; 8] = [0xc0, 0x9b, 0x55, 0xcd, 0x31, 0xf9, 0x81, 0x2a];
+const MAX_TICK_CROSSING_STEPS: usize = 256;
 
 #[derive(Clone, Debug)]
 pub struct LiveAttackConfig {
@@ -70,6 +75,7 @@ struct LocalClmmState {
     sqrt_price: f64,
     liquidity: f64,
     trade_fee_rate: f64,
+    tick_current: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -89,6 +95,17 @@ struct LocalSandwichResult {
     victim_extra_slippage_bps: u64,
     attack_feasible: bool,
     attack_profitable: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct InitializedTick {
+    index: i32,
+    liquidity_net: i128,
+}
+
+#[derive(Clone, Debug)]
+struct TickBook {
+    ticks: Vec<InitializedTick>,
 }
 
 pub fn evaluate_live_attacks(cfg: &LiveAttackConfig) -> Result<Vec<LiveClmmAttackRow>> {
@@ -232,27 +249,28 @@ fn evaluate_candidate_inner(
     )?;
 
     let zero_for_one = infer_zero_for_one(candidate, &pool_state)?;
-    let tick_arrays_valid = validate_tick_arrays(candidate, snapshots, snapshot_unix)?;
-    if !tick_arrays_valid {
-        return Ok(base_row(
-            candidate.clone(),
-            cfg,
-            "rejected",
-            Some("tick_array_snapshot_decode_failed".to_string()),
-        ));
-    }
+    let tick_book = load_tick_book(candidate, snapshots, snapshot_unix)?;
 
     let state = LocalClmmState {
         sqrt_price: pool_state.sqrt_price_x64 as f64 / Q64,
         liquidity: pool_state.liquidity as f64,
         trade_fee_rate: amm_config.trade_fee_rate as f64,
+        tick_current: pool_state.tick_current,
     };
 
-    // CLMM active-range formulas are from Uniswap v3 Core whitepaper
-    // (Adams et al., 2021), §6.2.1-§6.2.3. This first evaluator intentionally
-    // rejects rows whose victim-only replay does not match observed output.
-    let fair_swap = local_base_input_swap(state, amount_in, zero_for_one)
-        .ok_or_else(|| anyhow!("local victim swap failed"))?;
+    // CLMM swap steps use the Uniswap v3 active-liquidity formulas and tick
+    // crossing liquidity-net update described in Adams et al. (2021),
+    // Uniswap v3 Core whitepaper, §6.2.1-§6.2.3. Raydium CLMM follows the same
+    // concentrated-liquidity invariant family; this model remains float-based,
+    // so victim-only replay is still the acceptance gate.
+    let fair_swap = tick_crossing_base_input_swap(
+        state,
+        amount_in,
+        zero_for_one,
+        candidate.sqrt_price_limit_x64,
+        &tick_book,
+    )
+    .ok_or_else(|| anyhow!("local victim swap failed"))?;
     let fair_amount_out = fair_swap.amount_out;
     let replay_error_bps = bps_diff(fair_amount_out, actual_amount_out);
     if replay_error_bps > cfg.replay_tolerance_bps {
@@ -277,6 +295,7 @@ fn evaluate_candidate_inner(
         amount_in,
         candidate.min_amount_out,
         zero_for_one,
+        &tick_book,
         cfg.tx_cost_per_leg,
         cfg.max_steps,
     );
@@ -326,7 +345,7 @@ fn base_row(
         previous_snapshot_unix: candidate.previous_snapshot_unix,
         snapshot_before_block_time: candidate.snapshot_before_block_time,
         live_candidate_ready: candidate.live_candidate_ready,
-        model_version: "local_active_liquidity_v0_float".to_string(),
+        model_version: MODEL_VERSION.to_string(),
         model_status: model_status.to_string(),
         rejection_reason,
         pool_sqrt_price_x64_before: None,
@@ -359,6 +378,16 @@ fn load_amm_config(row: &LiveSnapshotRow) -> Result<AmmConfig> {
     <AmmConfig as CarbonDeserialize>::deserialize(&bytes).context("decode AmmConfig")
 }
 
+fn load_tick_array(row: &LiveSnapshotRow) -> Result<Option<TickArrayState>> {
+    let bytes = cached_bytes(row)?;
+    if !bytes.starts_with(&TICK_ARRAY_STATE_DISCRIMINATOR) {
+        return Ok(None);
+    }
+    <TickArrayState as CarbonDeserialize>::deserialize(&bytes)
+        .map(Some)
+        .context("decode TickArrayState")
+}
+
 fn cached_bytes(row: &LiveSnapshotRow) -> Result<Vec<u8>> {
     let path = row
         .cache_path
@@ -368,11 +397,12 @@ fn cached_bytes(row: &LiveSnapshotRow) -> Result<Vec<u8>> {
     CachedAccount::read(&path)?.data_bytes()
 }
 
-fn validate_tick_arrays(
+fn load_tick_book(
     candidate: &LiveCandidateReadinessRow,
     snapshots: &AccountSnapshotIndex,
     snapshot_unix: u64,
-) -> Result<bool> {
+) -> Result<TickBook> {
+    let mut ticks = Vec::new();
     for account in candidate
         .tick_arrays
         .as_deref()
@@ -381,14 +411,21 @@ fn validate_tick_arrays(
         .filter(|account| !account.is_empty())
     {
         let Some(row) = snapshots.pubkey(&candidate.pool_label, snapshot_unix, account) else {
-            return Ok(false);
+            return Err(anyhow!("missing tick-array snapshot"));
         };
-        // This first evaluator uses only the current active-liquidity range.
-        // It still requires the referenced remaining accounts to be snapshotted,
-        // but full tick-array decoding belongs to the later tick-crossing model.
-        let _ = row;
+        let Some(tick_array) = load_tick_array(row)? else {
+            continue;
+        };
+        ticks.extend(tick_array.ticks.iter().filter_map(|tick| {
+            (tick.liquidity_gross > 0).then_some(InitializedTick {
+                index: tick.tick,
+                liquidity_net: tick.liquidity_net,
+            })
+        }));
     }
-    Ok(true)
+    ticks.sort_by_key(|tick| tick.index);
+    ticks.dedup_by_key(|tick| tick.index);
+    Ok(TickBook { ticks })
 }
 
 fn infer_zero_for_one(
@@ -432,6 +469,7 @@ fn local_base_input_swap(
             amount_out: out.max(0.0).floor() as u128,
             next_state: LocalClmmState {
                 sqrt_price: next_sqrt,
+                tick_current: tick_at_sqrt_price(next_sqrt),
                 ..state
             },
         })
@@ -442,10 +480,88 @@ fn local_base_input_swap(
             amount_out: out.max(0.0).floor() as u128,
             next_state: LocalClmmState {
                 sqrt_price: next_sqrt,
+                tick_current: tick_at_sqrt_price(next_sqrt),
                 ..state
             },
         })
     }
+}
+
+fn tick_crossing_base_input_swap(
+    mut state: LocalClmmState,
+    amount_in: u128,
+    zero_for_one: bool,
+    sqrt_price_limit_x64: Option<u128>,
+    tick_book: &TickBook,
+) -> Option<LocalSwapResult> {
+    if amount_in == 0 || state.sqrt_price <= 0.0 || state.liquidity <= 0.0 {
+        return None;
+    }
+
+    let fee_factor = (FEE_DENOMINATOR - state.trade_fee_rate) / FEE_DENOMINATOR;
+    if fee_factor <= 0.0 {
+        return None;
+    }
+
+    let price_limit = sqrt_price_limit_x64
+        .filter(|limit| *limit > 0)
+        .map(|limit| limit as f64 / Q64)
+        .filter(|limit| {
+            if zero_for_one {
+                *limit < state.sqrt_price
+            } else {
+                *limit > state.sqrt_price
+            }
+        });
+    let mut amount_remaining = amount_in as f64;
+    let mut amount_out = 0.0;
+
+    for _ in 0..MAX_TICK_CROSSING_STEPS {
+        if amount_remaining <= 0.0 || state.liquidity <= 0.0 {
+            break;
+        }
+
+        let Some(next_tick) = tick_book.next_initialized_tick(state.tick_current, zero_for_one)
+        else {
+            let partial =
+                local_base_input_swap(state, amount_remaining.floor() as u128, zero_for_one)?;
+            amount_out += partial.amount_out as f64;
+            state = partial.next_state;
+            break;
+        };
+
+        let boundary_sqrt = sqrt_price_at_tick(next_tick.index);
+        let target_sqrt =
+            bounded_target_sqrt(state.sqrt_price, boundary_sqrt, price_limit, zero_for_one)?;
+        if target_sqrt == state.sqrt_price {
+            break;
+        }
+
+        let amount_after_fee = amount_remaining * fee_factor;
+        let amount_needed_after_fee = amount_in_to_target(state, target_sqrt, zero_for_one)?;
+        if amount_after_fee + 1e-9 < amount_needed_after_fee {
+            let partial =
+                local_base_input_swap(state, amount_remaining.floor() as u128, zero_for_one)?;
+            amount_out += partial.amount_out as f64;
+            state = partial.next_state;
+            break;
+        }
+
+        amount_remaining -= amount_needed_after_fee / fee_factor;
+        amount_out += amount_out_to_target(state, target_sqrt, zero_for_one)?;
+        state.sqrt_price = target_sqrt;
+
+        let crossed_boundary = (target_sqrt - boundary_sqrt).abs() <= 1e-12;
+        if !crossed_boundary {
+            break;
+        }
+        cross_tick(&mut state, next_tick, zero_for_one)?;
+    }
+
+    Some(LocalSwapResult {
+        amount_out: amount_out.max(0.0).floor() as u128,
+        next_state: state,
+    })
 }
 
 fn grid_sandwich(
@@ -453,13 +569,15 @@ fn grid_sandwich(
     victim_amount_in: u128,
     victim_min_out: Option<u128>,
     zero_for_one: bool,
+    tick_book: &TickBook,
     tx_cost_per_leg: u128,
     max_steps: u64,
 ) -> Option<LocalSandwichResult> {
     if max_steps == 0 {
         return None;
     }
-    let fair = local_base_input_swap(state, victim_amount_in, zero_for_one)?;
+    let fair =
+        tick_crossing_base_input_swap(state, victim_amount_in, zero_for_one, None, tick_book)?;
     let virtual_reserve_in = if zero_for_one {
         state.liquidity / state.sqrt_price
     } else {
@@ -481,6 +599,7 @@ fn grid_sandwich(
             victim_amount_in,
             victim_min_out,
             zero_for_one,
+            tick_book,
             tx_cost_per_leg,
             frontrun_amount,
         ) else {
@@ -503,12 +622,26 @@ fn simulate_sandwich(
     victim_amount_in: u128,
     victim_min_out: Option<u128>,
     zero_for_one: bool,
+    tick_book: &TickBook,
     tx_cost_per_leg: u128,
     frontrun_amount: u128,
 ) -> Option<LocalSandwichResult> {
-    let frontrun = local_base_input_swap(state, frontrun_amount, zero_for_one)?;
-    let victim = local_base_input_swap(frontrun.next_state, victim_amount_in, zero_for_one)?;
-    let backrun = local_base_input_swap(victim.next_state, frontrun.amount_out, !zero_for_one)?;
+    let frontrun =
+        tick_crossing_base_input_swap(state, frontrun_amount, zero_for_one, None, tick_book)?;
+    let victim = tick_crossing_base_input_swap(
+        frontrun.next_state,
+        victim_amount_in,
+        zero_for_one,
+        None,
+        tick_book,
+    )?;
+    let backrun = tick_crossing_base_input_swap(
+        victim.next_state,
+        frontrun.amount_out,
+        !zero_for_one,
+        None,
+        tick_book,
+    )?;
     let gross_profit = backrun.amount_out as i128 - frontrun_amount as i128;
     let net_profit = gross_profit - (2 * tx_cost_per_leg) as i128;
     let victim_loss_absolute = fair_amount_out.saturating_sub(victim.amount_out);
@@ -540,4 +673,102 @@ fn bps(numerator: u128, denominator: u128) -> u64 {
 fn bps_diff(a: u128, b: u128) -> u64 {
     let diff = a.abs_diff(b);
     bps(diff, a.max(b))
+}
+
+impl TickBook {
+    fn next_initialized_tick(
+        &self,
+        current_tick: i32,
+        zero_for_one: bool,
+    ) -> Option<InitializedTick> {
+        if zero_for_one {
+            self.ticks
+                .iter()
+                .rev()
+                .find(|tick| tick.index <= current_tick)
+                .copied()
+        } else {
+            self.ticks
+                .iter()
+                .find(|tick| tick.index > current_tick)
+                .copied()
+        }
+    }
+}
+
+fn bounded_target_sqrt(
+    current_sqrt: f64,
+    boundary_sqrt: f64,
+    price_limit: Option<f64>,
+    zero_for_one: bool,
+) -> Option<f64> {
+    let target = if zero_for_one {
+        boundary_sqrt.max(price_limit.unwrap_or(0.0))
+    } else {
+        boundary_sqrt.min(price_limit.unwrap_or(f64::INFINITY))
+    };
+    if target <= 0.0 {
+        return None;
+    }
+    if zero_for_one && target > current_sqrt {
+        return None;
+    }
+    if !zero_for_one && target < current_sqrt {
+        return None;
+    }
+    Some(target)
+}
+
+fn amount_in_to_target(state: LocalClmmState, target_sqrt: f64, zero_for_one: bool) -> Option<f64> {
+    if target_sqrt <= 0.0 || state.sqrt_price <= 0.0 || state.liquidity <= 0.0 {
+        return None;
+    }
+    let amount = if zero_for_one {
+        state.liquidity * (1.0 / target_sqrt - 1.0 / state.sqrt_price)
+    } else {
+        state.liquidity * (target_sqrt - state.sqrt_price)
+    };
+    (amount >= 0.0).then_some(amount)
+}
+
+fn amount_out_to_target(
+    state: LocalClmmState,
+    target_sqrt: f64,
+    zero_for_one: bool,
+) -> Option<f64> {
+    if target_sqrt <= 0.0 || state.sqrt_price <= 0.0 || state.liquidity <= 0.0 {
+        return None;
+    }
+    let amount = if zero_for_one {
+        state.liquidity * (state.sqrt_price - target_sqrt)
+    } else {
+        state.liquidity * (1.0 / state.sqrt_price - 1.0 / target_sqrt)
+    };
+    (amount >= 0.0).then_some(amount)
+}
+
+fn cross_tick(state: &mut LocalClmmState, tick: InitializedTick, zero_for_one: bool) -> Option<()> {
+    let next_liquidity = if zero_for_one {
+        state.liquidity - tick.liquidity_net as f64
+    } else {
+        state.liquidity + tick.liquidity_net as f64
+    };
+    if next_liquidity < 0.0 {
+        return None;
+    }
+    state.liquidity = next_liquidity;
+    state.tick_current = if zero_for_one {
+        tick.index.saturating_sub(1)
+    } else {
+        tick.index
+    };
+    Some(())
+}
+
+fn sqrt_price_at_tick(tick: i32) -> f64 {
+    1.0001_f64.powf(tick as f64 / 2.0)
+}
+
+fn tick_at_sqrt_price(sqrt_price: f64) -> i32 {
+    ((sqrt_price * sqrt_price).ln() / 1.0001_f64.ln()).floor() as i32
 }
