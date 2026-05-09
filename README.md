@@ -10,6 +10,22 @@ A Rust-based research workspace for studying MEV sandwich attacks on Solana
 Automated Market Makers. Pure off-chain math (`amm-math`) drives parameterized
 scenario sweeps, the same math backs a custom Anchor AMM program, and LiteSVM
 tests validate both the custom program and cloned Raydium CPMM mainnet pools.
+Historical Raydium tooling covers CPMM counterfactual candidates and a CLMM
+live pre-state path with a first tick-crossing profitability evaluator.
+
+## Current research status
+
+- Synthetic/custom CPMM: parameter sweeps, numerical optimizer, transaction
+  cost model and notebook analysis are implemented.
+- Raydium CPMM: snapshot comparison and historical candidate pipeline exist;
+  the current local dataset has profitable counterfactual rows, but final
+  thesis numbers still need a documented historical fee/pre-state policy.
+- Raydium CLMM: `live-collect` + `build-live-candidates` + `evaluate-live-attacks`
+  produce a counterfactual CSV using `tick_crossing_v1_float`. In the current
+  1h WSOL/USDC sample, `92` rows were ready, `90` were evaluated and `0` were profitable.
+  This is a sample-specific datapoint, not a universal CLMM conclusion.
+- Notebooks: `01` covers synthetic AMM parameters, `02` covers mainnet CPMM,
+  `03` covers CLMM decode/readiness/profitability evidence.
 
 ## Architecture
 
@@ -147,10 +163,10 @@ magisterka/
 │       └── src/instructions/, src/state/
 ├── simulator/              # CLI binary `mev-sim`
 │   └── src/{main,config,engine,real_pool,scenarios,output}.rs
-├── fork/                   # Raydium CPMM snapshot, LiteSVM replay, historical decode tooling
+├── fork/                   # Raydium CPMM replay + historical CPMM/CLMM tooling
 │   └── src/{account_fetcher,cheat,instructions,pool,
-│            programs,state_loader,historical_cpmm}.rs
-│   └── src/bin/{snapshot,historical_cpmm}.rs
+│            programs,state_loader,historical_cpmm,historical_clmm}.rs
+│   └── src/bin/{snapshot,historical_cpmm,historical_clmm}.rs
 ├── configs/                # TOML inputs
 │   ├── default.toml
 │   ├── sweep_liquidity.toml
@@ -189,9 +205,8 @@ cargo run -p fork --bin historical_cpmm -- run-all \
   --limit-per-pool 100 \
   --tx-cost-per-leg 0
 
-# Collect/decode historical Raydium CLMM swap observations
-# This is decode/coverage evidence only until historical tick-array pre-state
-# and CLMM replay validation are implemented.
+# Collect/decode historical Raydium CLMM swap observations. These rows are
+# coverage evidence unless paired with historical/live pre-state snapshots.
 cargo run -p fork --bin historical_clmm -- run-all \
   --pool clmm_wsol_usdc \
   --limit-per-pool 50 \
@@ -239,8 +254,8 @@ cargo run -p fork --bin historical_cpmm -- collect-signatures --pool wsol_surge
 cargo run -p fork --bin historical_cpmm -- fetch-transactions
 cargo run -p fork --bin historical_cpmm -- build-decoded --tx-cost-per-leg 0
 
-# Historical CLMM pipeline stages. Decoded rows are swap observations, not
-# profitability candidates yet.
+# Historical CLMM pipeline stages. Decoded rows become profitability candidates
+# only after matching pre-state is available.
 cargo run -p fork --bin historical_clmm -- collect-signatures --pool clmm_wsol_usdc
 cargo run -p fork --bin historical_clmm -- fetch-transactions
 cargo run -p fork --bin historical_clmm -- build-decoded --tx-cost-per-leg 0
@@ -258,14 +273,14 @@ cargo run -p fork --bin historical_clmm -- \
   --interval-seconds 10 \
   --poll-limit 50
 
-# Build a readiness CSV from the live collector output. This is still not
-# profitability; it only selects decoded swaps with a usable previous snapshot.
+# Build a readiness CSV from the live collector output. This selects decoded
+# swaps with a usable previous snapshot.
 cargo run -p fork --bin historical_clmm -- \
   --results-dir results \
   build-live-candidates
 
 # Evaluate live-ready CLMM rows with the tick-crossing float CLMM attack model.
-# Rows that fail readiness or victim replay remain in the CSV as rejected.
+# Rows that fail readiness, victim replay, or profitability remain in the CSV.
 cargo run -p fork --bin historical_clmm -- \
   --results-dir results \
   --tx-cost-per-leg 0 \
@@ -282,12 +297,25 @@ uv sync
 uv run jupyter lab
 # 01: synthetic AMM simulator parameter analysis
 # 02: Raydium CPMM snapshot + historical candidate analysis
-# 03: CLMM historical decode coverage and future counterfactual analysis
+# 03: CLMM historical/live readiness and counterfactual profitability analysis
 ```
 
 Some fork tests skip gracefully when `fork/cache/` fixtures or the Raydium
 program dump are absent. The checked-in Rust code still builds and the custom
 AMM LiteSVM test uses `target/deploy/amm.so`.
+
+## Next steps
+
+1. Commit the CLMM `best_attempt_*` diagnostics in
+   `fork/src/historical_clmm/attack.rs`.
+2. Refresh notebook `03_mainnet_clmm.ipynb` so `0 profitable` is explained via
+   best-attempt loss, fee drag, victim size and rejection reasons.
+3. Regenerate CLMM plots from a larger or more diverse live window, preferably
+   multiple CLMM pools instead of only deep WSOL/USDC.
+4. Validate `tick_crossing_v1_float` against Raydium/SDK or a program-level
+   replay; keep final thesis claims caveated until this is done.
+5. Finalize CPMM historical methodology: fee-config source, pre-state source,
+   and slippage feasibility policy.
 
 ## Tech stack
 
