@@ -16,9 +16,7 @@ use carbon_core::deserialize::CarbonDeserialize;
 use carbon_raydium_cpmm_decoder::accounts::pool_state::PoolState;
 use clap::Parser;
 use fork::{
-    account_fetcher::AccountFetcher,
-    pool::PoolManifest,
-    programs::RAYDIUM_CPMM_PROGRAM_ID,
+    account_fetcher::AccountFetcher, pool::PoolManifest, programs::RAYDIUM_CPMM_PROGRAM_ID,
 };
 use solana_pubkey::Pubkey;
 use std::path::PathBuf;
@@ -81,7 +79,13 @@ fn main() -> Result<()> {
     ];
     for (label, key) in &deps {
         let acc = fetcher.fetch_and_cache(key)?;
-        println!("      {:<18} {} ({}B, owner={})", label, key, acc.data_bytes()?.len(), acc.owner);
+        println!(
+            "      {:<18} {} ({}B, owner={})",
+            label,
+            key,
+            acc.data_bytes()?.len(),
+            acc.owner
+        );
     }
 
     // Resolve snapshot_unix_ts via getBlockTime(pool_slot). RPC providers
@@ -102,7 +106,10 @@ fn main() -> Result<()> {
             now
         }
     };
-    println!("      block_time={} (slot {})", snapshot_unix_ts, pool_acc.slot);
+    println!(
+        "      block_time={} (slot {})",
+        snapshot_unix_ts, pool_acc.slot
+    );
 
     println!("[3/4] Writing manifest...");
     let manifest = PoolManifest {
@@ -121,6 +128,10 @@ fn main() -> Result<()> {
     };
     manifest.write(&cache_dir.join("manifest.json"))?;
 
-    println!("[4/4] Done. Cached {} files in {}", deps.len() + 1, cache_dir.display());
+    println!(
+        "[4/4] Done. Cached {} files in {}",
+        deps.len() + 1,
+        cache_dir.display()
+    );
     Ok(())
 }

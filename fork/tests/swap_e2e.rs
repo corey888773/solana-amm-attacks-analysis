@@ -4,7 +4,9 @@
 
 use carbon_core::deserialize::CarbonDeserialize;
 use carbon_raydium_cpmm_decoder::accounts::amm_config::AmmConfig;
-use fork::cheat::{fund_token_account, read_token_amount, SPL_TOKEN_PROGRAM, TOKEN_RENT_EXEMPT_LAMPORTS};
+use fork::cheat::{
+    fund_token_account, read_token_amount, SPL_TOKEN_PROGRAM, TOKEN_RENT_EXEMPT_LAMPORTS,
+};
 use fork::instructions::{cpmm_authority, swap_base_input};
 use fork::pool::{PoolManifest, RaydiumCpmmPool};
 use fork::programs::raydium_cpmm_program_pubkey;
@@ -70,8 +72,22 @@ fn swap_wsol_for_surge_on_cloned_pool() {
     let attacker_surge = Keypair::new().pubkey();
 
     let amount_in: u64 = 1_000_000_000; // 1 WSOL
-    fund_token_account(&mut svm, &attacker_wsol, &pool.mint_a, &attacker.pubkey(), amount_in).unwrap();
-    fund_token_account(&mut svm, &attacker_surge, &pool.mint_b, &attacker.pubkey(), 0).unwrap();
+    fund_token_account(
+        &mut svm,
+        &attacker_wsol,
+        &pool.mint_a,
+        &attacker.pubkey(),
+        amount_in,
+    )
+    .unwrap();
+    fund_token_account(
+        &mut svm,
+        &attacker_surge,
+        &pool.mint_b,
+        &attacker.pubkey(),
+        0,
+    )
+    .unwrap();
 
     // 5. Capture pre-swap state.
     let vault_a_pre = read_token_amount(&svm, &pool.vault_a);
@@ -91,10 +107,10 @@ fn swap_wsol_for_surge_on_cloned_pool() {
         &attacker.pubkey(),
         &pool.amm_config,
         &pool.pool_pubkey,
-        &attacker_wsol,    // input_token_account
-        &attacker_surge,   // output_token_account
-        &pool.vault_a,     // input_vault
-        &pool.vault_b,     // output_vault
+        &attacker_wsol,  // input_token_account
+        &attacker_surge, // output_token_account
+        &pool.vault_a,   // input_vault
+        &pool.vault_b,   // output_vault
         &token_program,
         &token_program,
         &pool.mint_a,
@@ -111,10 +127,16 @@ fn swap_wsol_for_surge_on_cloned_pool() {
     let result = svm.send_transaction(tx);
     match result {
         Ok(meta) => {
-            println!("swap OK: cu={} logs={}", meta.compute_units_consumed, meta.logs.len());
+            println!(
+                "swap OK: cu={} logs={}",
+                meta.compute_units_consumed,
+                meta.logs.len()
+            );
         }
         Err(e) => {
-            for l in &e.meta.logs { eprintln!("  log: {}", l); }
+            for l in &e.meta.logs {
+                eprintln!("  log: {}", l);
+            }
             panic!("swap failed: {:?}", e.err);
         }
     }
@@ -131,7 +153,11 @@ fn swap_wsol_for_surge_on_cloned_pool() {
 
     assert_eq!(attacker_wsol_post, 0, "all WSOL spent");
     assert!(attacker_surge_post > 0, "SURGE received");
-    assert_eq!(vault_a_post, vault_a_pre + amount_in, "input_vault += amount_in");
+    assert_eq!(
+        vault_a_post,
+        vault_a_pre + amount_in,
+        "input_vault += amount_in"
+    );
     assert!(vault_b_post < vault_b_pre, "output_vault decreased");
     let vault_out_delta = vault_b_pre - vault_b_post;
     assert_eq!(
@@ -144,7 +170,12 @@ fn swap_wsol_for_surge_on_cloned_pool() {
     let fee_num: u128 = cfg.trade_fee_rate as u128;
     let fee_denom: u128 = 1_000_000;
     let amount_in_u: u128 = amount_in as u128;
-    let trade_fee = amount_in_u * fee_num / fee_denom + if (amount_in_u * fee_num) % fee_denom != 0 { 1 } else { 0 };
+    let trade_fee = amount_in_u * fee_num / fee_denom
+        + if (amount_in_u * fee_num) % fee_denom != 0 {
+            1
+        } else {
+            0
+        };
     let input_after_fee = amount_in_u - trade_fee;
     let reserve_in = vault_a_pre as u128;
     let reserve_out = vault_b_pre as u128;
@@ -157,7 +188,10 @@ fn swap_wsol_for_surge_on_cloned_pool() {
     );
     let diff = (attacker_surge_post as i128 - expected_out as i128).abs();
     let rel_err = diff as f64 / expected_out as f64;
-    println!("relative error vs naive (trade_fee only): {:.6}%", rel_err * 100.0);
+    println!(
+        "relative error vs naive (trade_fee only): {:.6}%",
+        rel_err * 100.0
+    );
 
     // Naive off-chain (trade_fee=0.25% only) overestimates by ~0.06%, consistent
     // with CPMM also applying creator_fee on input (cfg.creator_fee_rate=500=0.05%)

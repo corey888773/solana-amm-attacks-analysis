@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use std::path::Path;
+use std::str::FromStr;
 
 /// Per-pool snapshot manifest. Persisted as `manifest.json` next to the
 /// account dumps so a snapshot is self-describing (slot, timestamp, label).
@@ -47,6 +48,50 @@ pub struct RaydiumCpmmPool {
     pub amm_config: Pubkey,
     pub observation_state: Option<Pubkey>,
     pub lp_mint: Option<Pubkey>,
+}
+
+impl RaydiumCpmmPool {
+    pub fn from_manifest(manifest: PoolManifest) -> Result<Self> {
+        Ok(Self {
+            pool_pubkey: Pubkey::from_str(&manifest.pool_address)?,
+            mint_a: Pubkey::from_str(&manifest.mint_a)?,
+            mint_b: Pubkey::from_str(&manifest.mint_b)?,
+            vault_a: Pubkey::from_str(&manifest.vault_a)?,
+            vault_b: Pubkey::from_str(&manifest.vault_b)?,
+            amm_config: Pubkey::from_str(&manifest.amm_config)?,
+            observation_state: manifest
+                .observation_state
+                .as_deref()
+                .map(Pubkey::from_str)
+                .transpose()?,
+            lp_mint: manifest
+                .lp_mint
+                .as_deref()
+                .map(Pubkey::from_str)
+                .transpose()?,
+            manifest,
+        })
+    }
+
+    /// All non-program account pubkeys that make up this pool's state.
+    /// Used by snapshot CLI (fetch loop) and state_loader (replay loop).
+    pub fn account_set(&self) -> Vec<Pubkey> {
+        let mut keys = vec![
+            self.pool_pubkey,
+            self.mint_a,
+            self.mint_b,
+            self.vault_a,
+            self.vault_b,
+            self.amm_config,
+        ];
+        if let Some(o) = self.observation_state {
+            keys.push(o);
+        }
+        if let Some(lp) = self.lp_mint {
+            keys.push(lp);
+        }
+        keys
+    }
 }
 
 #[cfg(test)]

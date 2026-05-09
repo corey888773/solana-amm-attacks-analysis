@@ -1158,6 +1158,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbon-raydium-clmm-decoder"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f955ea14c3a61ff30e3fc2e9f0bb0285528105a85cd0d8d46a40aa24959eed0"
+dependencies = [
+ "carbon-core",
+ "serde",
+ "serde-big-array",
+ "solana-account",
+ "solana-instruction",
+ "solana-pubkey 3.0.0",
+]
+
+[[package]]
 name = "carbon-raydium-cpmm-decoder"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2037,8 +2051,10 @@ dependencies = [
  "borsh",
  "bs58",
  "carbon-core",
+ "carbon-raydium-clmm-decoder",
  "carbon-raydium-cpmm-decoder",
  "clap",
+ "csv",
  "litesvm",
  "serde",
  "serde_json",
@@ -2050,9 +2066,11 @@ dependencies = [
  "solana-message",
  "solana-pubkey 3.0.0",
  "solana-sdk",
+ "solana-signature",
  "solana-signer",
  "solana-system-interface 2.0.0",
  "solana-transaction",
+ "solana-transaction-status-client-types",
  "tempfile",
  "tokio",
 ]

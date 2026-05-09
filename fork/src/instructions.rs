@@ -8,8 +8,11 @@ use solana_sdk::instruction::{AccountMeta, Instruction};
 use std::str::FromStr;
 
 /// Anchor discriminator for `swap_base_input` (sha256("global:swap_base_input")[..8]).
-pub const SWAP_BASE_INPUT_DISCRIMINATOR: [u8; 8] =
-    [0x8f, 0xbe, 0x5a, 0xda, 0xc4, 0x1e, 0x33, 0xde];
+pub const SWAP_BASE_INPUT_DISCRIMINATOR: [u8; 8] = [0x8f, 0xbe, 0x5a, 0xda, 0xc4, 0x1e, 0x33, 0xde];
+
+/// Anchor discriminator for `swap_base_output`; historical MVP detects it but does not evaluate it.
+pub const SWAP_BASE_OUTPUT_DISCRIMINATOR: [u8; 8] =
+    [0x37, 0xd9, 0x62, 0x56, 0xa3, 0x4a, 0xb4, 0xad];
 
 pub const AUTH_SEED: &[u8] = b"vault_and_lp_mint_auth_seed";
 
