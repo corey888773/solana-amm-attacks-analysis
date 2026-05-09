@@ -285,24 +285,28 @@ def save_cpmm(comparison, output_dir):
         .reset_index()
     )
     profit["median_net_profit_m"] = profit["median_net_profit"] / 1_000_000
-    fig, ax = plt.subplots(figsize=(9, 5.2))
-    sns.lineplot(
-        data=profit,
-        x="victim_amount",
-        y="median_net_profit_m",
-        hue="source_label",
-        marker="o",
-        linewidth=2,
-        ax=ax,
-    )
-    ax.axhline(0, color="black", linewidth=1)
-    ax.set_xscale("log")
-    ax.set_title("Raydium CPMM snapshot: median net profit by victim amount")
-    ax.set_xlabel("Victim amount [token-in units]")
-    ax.set_ylabel("Median attacker net profit [millions of token-in units]")
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: compact_number(x)))
-    ax.legend(frameon=True)
-    ax.grid(True, alpha=0.35)
+    labels = profit["source_label"].dropna().unique()
+    fig, axes = plt.subplots(1, len(labels), figsize=(5.3 * len(labels), 4.9), sharex=True)
+    if len(labels) == 1:
+        axes = [axes]
+    for ax, label in zip(axes, labels):
+        subset = profit.loc[profit["source_label"] == label]
+        sns.lineplot(
+            data=subset,
+            x="victim_amount",
+            y="median_net_profit_m",
+            marker="o",
+            linewidth=2,
+            ax=ax,
+        )
+        ax.axhline(0, color="black", linewidth=1)
+        ax.set_xscale("log")
+        ax.set_title(label)
+        ax.set_xlabel("Victim amount [token-in units]")
+        ax.set_ylabel("Median net profit [M token-in units]")
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: compact_number(x)))
+        ax.grid(True, alpha=0.35)
+    fig.suptitle("Raydium CPMM snapshot: median net profit by victim amount", y=1.03)
     fig.tight_layout()
     save(fig, output_dir, "02_cpmm_snapshot_net_profit")
 

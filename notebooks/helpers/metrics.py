@@ -8,16 +8,31 @@ def data_readiness(root, inputs: dict, dataset_names: list[str]) -> pd.DataFrame
         path = inputs["paths"].get(name)
         legacy = bool(df.attrs.get("legacy_schema", False))
         missing_columns = df.attrs.get("missing_recommended_columns", [])
+        if path is None:
+            note = "missing file"
+        elif legacy:
+            note = "legacy schema: regenerate CSV"
+        elif len(df) == 0 and missing_columns:
+            note = f"empty or missing: {', '.join(missing_columns)}"
+        elif len(df) == 0:
+            note = "empty"
+        elif name == "historical_clmm_decoded":
+            note = "decode coverage only; not profitability evidence"
+        elif name == "historical_clmm_state_probe":
+            note = "state requirements only; not profitability evidence"
+        else:
+            note = "ok"
+        ready = bool(len(df) > 0 and not legacy)
+        if name in {"historical_clmm_decoded", "historical_clmm_state_probe"}:
+            ready = False
         rows.append(
             {
                 "dataset": name,
                 "file": str(path.relative_to(root)) if path else "missing",
                 "rows": len(df),
                 "columns": len(df.columns),
-                "ready_for_final_numbers": bool(len(df) > 0 and not legacy),
-                "note": "legacy schema: regenerate CSV"
-                if legacy
-                else (f"missing: {', '.join(missing_columns)}" if len(df) == 0 else "ok"),
+                "ready_for_final_numbers": ready,
+                "note": note,
             }
         )
     return pd.DataFrame(rows)
@@ -127,7 +142,14 @@ def historical_counterfactual_summary(df: pd.DataFrame) -> pd.DataFrame:
     if not group_cols:
         return pd.DataFrame()
 
+    required = {"attack_profitable", "attack_feasible", "attack_realized"}
+    if not required.issubset(working.columns):
+        return pd.DataFrame()
+
     profit_col = "attacker_net_profit" if "attacker_net_profit" in working else "net_profit"
+    if profit_col not in working:
+        return pd.DataFrame()
+
     return (
         working.groupby(group_cols, dropna=False)
         .agg(
