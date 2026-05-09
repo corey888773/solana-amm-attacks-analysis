@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +23,10 @@ RECOMMENDED_SIMULATOR_COLUMNS = {
 def read_csv(path: Path | None) -> pd.DataFrame:
     if path is None:
         return pd.DataFrame()
-    return pd.read_csv(path)
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
 
 
 def as_bool(series: pd.Series) -> pd.Series:
@@ -59,12 +63,18 @@ def normalize_simulator_rows(df: pd.DataFrame, dataset_name: str) -> pd.DataFram
     if "strategy" not in df:
         df["strategy"] = "legacy_closed_form"
     if "pool_label" not in df:
-        source = df.get("source", "")
+        source = df["source"] if "source" in df else pd.Series("", index=df.index)
         df["pool_label"] = np.where(
             source.astype(str).str.contains("real|raydium", case=False, na=False),
             "unknown_real_pool",
             "synthetic",
         )
+    if "frontrun_amount" not in df and "optimal_frontrun" in df:
+        df["frontrun_amount"] = df["optimal_frontrun"]
+    if "victim_amount" not in df and "amount_in" in df:
+        df["victim_amount"] = df["amount_in"]
+    if "victim_amount_out_no_attack" not in df and "fair_amount_out" in df:
+        df["victim_amount_out_no_attack"] = df["fair_amount_out"]
     if "attack_profitable" in df:
         df["attack_profitable"] = as_bool(df["attack_profitable"])
     else:
@@ -88,8 +98,14 @@ def normalize_simulator_rows(df: pd.DataFrame, dataset_name: str) -> pd.DataFram
     else:
         df["victim_reverted"] = as_bool(df["victim_reverted"])
     if "attack_status" not in df:
+        frontrun = pd.to_numeric(
+            df["frontrun_amount"]
+            if "frontrun_amount" in df
+            else pd.Series(np.nan, index=df.index),
+            errors="coerce",
+        )
         df["attack_status"] = np.select(
-            [df["frontrun_amount"].fillna(0).eq(0), df["attack_profitable"]],
+            [frontrun.eq(0) | ~df["attack_profitable"], df["attack_profitable"]],
             ["no_profitable_attack", "executed"],
             default="executed",
         )
@@ -157,7 +173,15 @@ def normalize_simulator_rows(df: pd.DataFrame, dataset_name: str) -> pd.DataFram
 
 
 def load_inputs(root: Path) -> dict:
+    configured_results = os.environ.get("MEV_RESULTS_DIR")
     results = root / "results"
+    clmm_results = (
+        Path(configured_results).expanduser()
+        if configured_results
+        else results
+    )
+    if not clmm_results.is_absolute():
+        clmm_results = root / clmm_results
     paths = {
         "synthetic_sweep": first_existing(results, "sweep.csv", "output.csv"),
         "zhou_vs_numerical": first_existing(results, "zhou_vs_numerical.csv"),
@@ -166,8 +190,56 @@ def load_inputs(root: Path) -> dict:
             "real_pool_comparison.csv",
             "sweep_real_pool.csv",
         ),
+        "historical_cpmm_swaps_status": first_existing(
+            results,
+            "historical_cpmm_swaps_status.csv",
+        ),
+        "historical_cpmm_pipeline_summary": first_existing(
+            results,
+            "historical_cpmm_pipeline_summary.csv",
+        ),
+        "historical_cpmm_decoded": first_existing(
+            results,
+            "historical_cpmm_decoded.csv",
+        ),
+        "historical_cpmm_candidates": first_existing(
+            results,
+            "historical_cpmm_candidates.csv",
+        ),
         "historical_cpmm": first_existing(results, "historical_cpmm_candidates.csv"),
-        "historical_clmm": first_existing(results, "historical_clmm_candidates.csv"),
+        "historical_clmm_swaps_status": first_existing(
+            results,
+            "historical_clmm_swaps_status.csv",
+        ),
+        "historical_clmm_pipeline_summary": first_existing(
+            results,
+            "historical_clmm_pipeline_summary.csv",
+        ),
+        "historical_clmm_state_probe": first_existing(
+            results,
+            "historical_clmm_state_probe.csv",
+        ),
+        "historical_clmm_decoded": first_existing(
+            results,
+            "historical_clmm_decoded.csv",
+        ),
+        "historical_clmm_live_swaps": first_existing(
+            clmm_results,
+            "historical_clmm_live_swaps.csv",
+        ),
+        "historical_clmm_live_snapshots": first_existing(
+            clmm_results,
+            "historical_clmm_live_snapshots.csv",
+        ),
+        "historical_clmm_live_candidates": first_existing(
+            clmm_results,
+            "historical_clmm_live_candidates.csv",
+        ),
+        "historical_clmm_candidates": first_existing(
+            clmm_results,
+            "historical_clmm_candidates.csv",
+        ),
+        "historical_clmm": first_existing(clmm_results, "historical_clmm_candidates.csv"),
     }
     frames = {
         "synthetic_sweep": normalize_simulator_rows(
@@ -179,7 +251,33 @@ def load_inputs(root: Path) -> dict:
             read_csv(paths["real_pool_comparison"]),
             "real_pool_comparison",
         ),
-        "historical_cpmm": read_csv(paths["historical_cpmm"]),
+        "historical_cpmm_swaps_status": read_csv(paths["historical_cpmm_swaps_status"]),
+        "historical_cpmm_pipeline_summary": read_csv(
+            paths["historical_cpmm_pipeline_summary"],
+        ),
+        "historical_cpmm_decoded": read_csv(paths["historical_cpmm_decoded"]),
+        "historical_cpmm_candidates": normalize_simulator_rows(
+            read_csv(paths["historical_cpmm_candidates"]),
+            "historical_cpmm_candidates",
+        ),
+        "historical_cpmm": normalize_simulator_rows(
+            read_csv(paths["historical_cpmm"]),
+            "historical_cpmm",
+        ),
+        "historical_clmm_swaps_status": read_csv(paths["historical_clmm_swaps_status"]),
+        "historical_clmm_pipeline_summary": read_csv(
+            paths["historical_clmm_pipeline_summary"],
+        ),
+        "historical_clmm_state_probe": read_csv(paths["historical_clmm_state_probe"]),
+        "historical_clmm_decoded": read_csv(paths["historical_clmm_decoded"]),
+        "historical_clmm_live_swaps": read_csv(paths["historical_clmm_live_swaps"]),
+        "historical_clmm_live_snapshots": read_csv(
+            paths["historical_clmm_live_snapshots"],
+        ),
+        "historical_clmm_live_candidates": read_csv(
+            paths["historical_clmm_live_candidates"],
+        ),
+        "historical_clmm_candidates": read_csv(paths["historical_clmm_candidates"]),
         "historical_clmm": read_csv(paths["historical_clmm"]),
     }
     return {"paths": paths, "frames": frames}
