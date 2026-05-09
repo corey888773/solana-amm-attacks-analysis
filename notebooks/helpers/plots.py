@@ -25,7 +25,7 @@ def plot_realized_heatmap(df, *, value, title, cbar_label, fmt=".2f", cmap="viri
 
 
 def plot_sensitivity_lines(df, *, x, y, title, ylabel):
-    if df.empty or not {x, y}.issubset(df.columns):
+    if df.empty or not {x, y}.issubset(df.columns) or df[x].nunique() < 2:
         return None
 
     summary = (
@@ -34,6 +34,9 @@ def plot_sensitivity_lines(df, *, x, y, title, ylabel):
         .reset_index()
         .sort_values(x)
     )
+    if summary["value"].nunique() < 2:
+        return None
+
     fig, ax = plt.subplots(figsize=(8, 4.5))
     sns.lineplot(data=summary, x=x, y="value", marker="o", ax=ax)
     ax.set_title(title)
