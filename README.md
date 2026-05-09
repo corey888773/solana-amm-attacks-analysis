@@ -264,7 +264,7 @@ cargo run -p fork --bin historical_clmm -- \
   --results-dir results \
   build-live-candidates
 
-# Evaluate live-ready CLMM rows with the first conservative CLMM attack model.
+# Evaluate live-ready CLMM rows with the tick-crossing float CLMM attack model.
 # Rows that fail readiness or victim replay remain in the CSV as rejected.
 cargo run -p fork --bin historical_clmm -- \
   --results-dir results \
