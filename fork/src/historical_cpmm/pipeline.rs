@@ -55,7 +55,17 @@ pub fn collect_signatures_stage(
     limit_per_pool: usize,
     paths: &PipelinePaths,
 ) -> Result<Vec<SignatureRow>> {
-    let rows = collect_signatures(rpc, pools, limit_per_pool)?;
+    collect_signatures_stage_with_floor(rpc, pools, limit_per_pool, None, paths)
+}
+
+pub fn collect_signatures_stage_with_floor(
+    rpc: &RpcClient,
+    pools: &[PoolTarget],
+    limit_per_pool: usize,
+    min_block_time: Option<i64>,
+    paths: &PipelinePaths,
+) -> Result<Vec<SignatureRow>> {
+    let rows = collect_signatures(rpc, pools, limit_per_pool, min_block_time)?;
     write_csv(&paths.signatures_csv(), &rows)?;
     Ok(rows)
 }
@@ -123,7 +133,22 @@ pub fn run_all(
     Vec<StatusRow>,
     Vec<PipelineSummaryRow>,
 )> {
-    collect_signatures_stage(rpc, pools, limit_per_pool, paths)?;
+    run_all_with_floor(rpc, pools, limit_per_pool, None, paths, tx_cost_per_leg)
+}
+
+pub fn run_all_with_floor(
+    rpc: &RpcClient,
+    pools: &[PoolTarget],
+    limit_per_pool: usize,
+    min_block_time: Option<i64>,
+    paths: &PipelinePaths,
+    tx_cost_per_leg: u128,
+) -> Result<(
+    Vec<DecodedCandidateRow>,
+    Vec<StatusRow>,
+    Vec<PipelineSummaryRow>,
+)> {
+    collect_signatures_stage_with_floor(rpc, pools, limit_per_pool, min_block_time, paths)?;
     fetch_transactions_stage(rpc, paths)?;
     build_decoded_stage(rpc, paths, tx_cost_per_leg)
 }

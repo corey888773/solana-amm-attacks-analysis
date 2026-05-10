@@ -64,7 +64,7 @@ pub fn collect_signatures_stage(
             address: pool.address.clone(),
         })
         .collect::<Vec<_>>();
-    let rows = collect_cpmm_style_signatures(rpc, &cpmm_compatible, limit_per_pool)?
+    let rows = collect_cpmm_style_signatures(rpc, &cpmm_compatible, limit_per_pool, None)?
         .into_iter()
         .map(|row| SignatureRow {
             pool_label: row.pool_label,
