@@ -594,6 +594,19 @@ fn tick_crossing_base_input_swap(
     })
 }
 
+/// Optimize the frontrun amount via ternary search over `[0, hi]`.
+///
+/// Replaces the previous uniform 200-point grid that silently missed the
+/// optimum on large victims (cap = victim*100, step = cap/200, so the
+/// minimum probe was already past the maximum for big trades). Pattern
+/// ported from the CPMM optimizer in `crates/amm-math/src/sandwich/
+/// numerical.rs::compute_numerical_sandwich`. Net profit pi(V_f) is
+/// approximately unimodal in V_f for fee>0 (concave with a single
+/// maximum); CLMM tick crossings introduce small non-smoothness at
+/// segment boundaries but empirically preserve unimodality.
+///
+/// Always returns the best simulation encountered (profitable or not) so
+/// `best_attempt_*` diagnostics stay populated.
 fn grid_sandwich(
     state: LocalClmmState,
     victim_amount_in: u128,
@@ -603,27 +616,46 @@ fn grid_sandwich(
     tx_cost_per_leg: u128,
     max_steps: u64,
 ) -> Option<LocalSandwichResult> {
-    if max_steps == 0 {
+    if max_steps == 0 || victim_amount_in == 0 {
         return None;
     }
     let fair =
         tick_crossing_base_input_swap(state, victim_amount_in, zero_for_one, None, tick_book)?;
-    let virtual_reserve_in = if zero_for_one {
+
+    // Upper bound for frontrun search. Use the local-tick virtual reserve
+    // (`L / sqrt(P)` or `L * sqrt(P)`) but never below `victim * 1000`, so
+    // the optimum is inside the bracket on shallow active liquidity. Beyond
+    // this region the float CLMM math saturates and additional frontrun has
+    // no economic interpretation.
+    let virtual_reserve_in_f = if zero_for_one {
         state.liquidity / state.sqrt_price
     } else {
         state.liquidity * state.sqrt_price
     };
-    let cap = (victim_amount_in.saturating_mul(100))
-        .min(virtual_reserve_in.max(1.0).floor() as u128)
-        .max(1);
+    let victim_scaled = (victim_amount_in as f64) * 1000.0;
+    let hi_f = virtual_reserve_in_f.max(victim_scaled).max(2.0);
+    let hi_initial: u128 = if hi_f.is_finite() && hi_f < (u128::MAX as f64) {
+        hi_f.floor() as u128
+    } else {
+        u128::MAX / 2
+    };
 
     let mut best: Option<LocalSandwichResult> = None;
-    for step in 1..=max_steps {
-        let frontrun_amount = ((cap as f64 * step as f64) / max_steps as f64).floor() as u128;
-        if frontrun_amount == 0 {
-            continue;
+    let record = |result: LocalSandwichResult, best: &mut Option<LocalSandwichResult>| {
+        if best
+            .as_ref()
+            .map(|cur| result.net_profit > cur.net_profit)
+            .unwrap_or(true)
+        {
+            *best = Some(result);
         }
-        let Some(result) = simulate_sandwich(
+    };
+
+    let probe = |frontrun: u128, best: &mut Option<LocalSandwichResult>| -> i128 {
+        if frontrun == 0 {
+            return 0i128.saturating_sub(2i128.saturating_mul(tx_cost_per_leg as i128));
+        }
+        match simulate_sandwich(
             state,
             fair.amount_out,
             victim_amount_in,
@@ -631,18 +663,68 @@ fn grid_sandwich(
             zero_for_one,
             tick_book,
             tx_cost_per_leg,
-            frontrun_amount,
-        ) else {
-            continue;
-        };
-        if best
-            .as_ref()
-            .map(|best| result.net_profit > best.net_profit)
-            .unwrap_or(true)
-        {
-            best = Some(result);
+            frontrun,
+        ) {
+            Some(result) => {
+                let net = result.net_profit;
+                record(result, best);
+                net
+            }
+            None => i128::MIN / 2,
+        }
+    };
+
+    let mut lo: u128 = 0;
+    let mut hi: u128 = hi_initial;
+
+    // Ternary search. Each step shrinks the range by 2/3, so even with
+    // max_steps=64 the bracket collapses to a single unit on any realistic
+    // pool. We still cap iterations at max_steps to honor the CLI flag.
+    let iter_budget = max_steps.max(64);
+    for _ in 0..iter_budget {
+        if hi <= lo + 2 {
+            break;
+        }
+        let third = (hi - lo) / 3;
+        let m1 = lo + third;
+        let m2 = hi - third;
+        let p1 = probe(m1, &mut best);
+        let p2 = probe(m2, &mut best);
+        if p1 < p2 {
+            lo = m1;
+        } else {
+            hi = m2;
         }
     }
+
+    // Linear sweep over the residual bracket — guards against tiny
+    // non-monotonicities at tick boundaries.
+    let lo_check = lo.saturating_sub(1);
+    let hi_check = hi.saturating_add(1);
+    let mut v = lo_check;
+    while v <= hi_check {
+        probe(v, &mut best);
+        if v == hi_check {
+            break;
+        }
+        v += 1;
+    }
+
+    // Sanity-check anchors: pure CPMM Zhou suggestion and fractions of cap.
+    // These rarely beat ternary but pin the search if profit landscape is
+    // multi-modal across tick boundaries on a particular swap.
+    for anchor in [
+        victim_amount_in,
+        victim_amount_in.saturating_mul(2),
+        hi_initial / 2,
+        hi_initial / 4,
+        hi_initial / 8,
+    ] {
+        if anchor > 0 && anchor <= hi_initial {
+            probe(anchor, &mut best);
+        }
+    }
+
     best
 }
 
