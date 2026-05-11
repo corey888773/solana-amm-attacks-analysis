@@ -27,16 +27,33 @@ pub fn fetch_and_cache_transaction(
     }
 
     let sig = Signature::from_str(signature).context("parse signature")?;
-    let tx = rpc
-        .get_transaction_with_config(
-            &sig,
-            RpcTransactionConfig {
-                encoding: Some(UiTransactionEncoding::Base64),
-                commitment: Some(CommitmentConfig::finalized()),
-                max_supported_transaction_version: Some(0),
-            },
-        )
-        .with_context(|| format!("get transaction {signature}"))?;
+    let cfg = RpcTransactionConfig {
+        encoding: Some(UiTransactionEncoding::Base64),
+        commitment: Some(CommitmentConfig::finalized()),
+        max_supported_transaction_version: Some(0),
+    };
+    // Retry transient RPC failures (connection drops, timeouts, 429s) with
+    // exponential backoff. 6 attempts ≈ up to ~63s of waiting before giving up.
+    let mut attempt = 0u32;
+    let tx = loop {
+        match rpc.get_transaction_with_config(&sig, cfg.clone()) {
+            Ok(tx) => break tx,
+            Err(e) if attempt < 5 => {
+                let backoff_ms = 500u64 << attempt; // 0.5s, 1s, 2s, 4s, 8s, 16s
+                eprintln!(
+                    "rpc retry {}/5 for {signature} after {}ms: {e}",
+                    attempt + 1,
+                    backoff_ms
+                );
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                attempt += 1;
+            }
+            Err(e) => {
+                return Err(anyhow::Error::new(e))
+                    .with_context(|| format!("get transaction {signature} after 6 attempts"));
+            }
+        }
+    };
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;

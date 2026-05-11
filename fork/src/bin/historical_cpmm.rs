@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use fork::historical_cpmm::artifacts::write_csv;
+use fork::historical_cpmm::attack::evaluate_attacks;
 use fork::historical_cpmm::config::{select_pools, DEFAULT_RPC_URL};
 use fork::historical_cpmm::pipeline::{
     build_decoded_stage, collect_signatures_stage_with_floor, default_paths, ensure_paths,
@@ -50,7 +51,17 @@ enum Command {
     FetchTransactions,
     DecodeSwaps,
     BuildDecoded,
-    RunAll,
+    EvaluateAttacks {
+        /// Minimum victim_amount_in below which a row is marked
+        /// `below_candidate_threshold` and skipped.
+        #[arg(long, default_value_t = 10_000)]
+        min_victim: u128,
+    },
+    RunAll {
+        /// Same threshold as `EvaluateAttacks::min_victim`.
+        #[arg(long, default_value_t = 10_000)]
+        min_victim: u128,
+    },
 }
 
 fn main() -> Result<()> {
@@ -100,7 +111,28 @@ fn main() -> Result<()> {
                 statuses.len()
             );
         }
-        Command::RunAll => {
+        Command::EvaluateAttacks { min_victim } => {
+            let candidates_csv = paths.results_dir.join("historical_cpmm_candidates.csv");
+            let stats = evaluate_attacks(
+                &paths.decoded_csv(),
+                &candidates_csv,
+                cli.tx_cost_per_leg,
+                Some(min_victim),
+            )?;
+            println!(
+                "EvaluateAttacks: in={} out={} below={} replay_mismatch={} \
+                 profitable={} unprofitable={} no_result={} invalid_state={}",
+                stats.input_rows,
+                stats.output_rows,
+                stats.below_threshold,
+                stats.replay_mismatch,
+                stats.profitable,
+                stats.unprofitable,
+                stats.no_result,
+                stats.invalid_state,
+            );
+        }
+        Command::RunAll { min_victim } => {
             let (decoded, statuses, _summary) = run_all_with_floor(
                 &rpc,
                 &pools,
@@ -113,6 +145,25 @@ fn main() -> Result<()> {
                 "Historical CPMM pipeline complete: {} decoded row(s), {} status row(s)",
                 decoded.len(),
                 statuses.len()
+            );
+            let candidates_csv = paths.results_dir.join("historical_cpmm_candidates.csv");
+            let stats = evaluate_attacks(
+                &paths.decoded_csv(),
+                &candidates_csv,
+                cli.tx_cost_per_leg,
+                Some(min_victim),
+            )?;
+            println!(
+                "EvaluateAttacks: in={} out={} below={} replay_mismatch={} \
+                 profitable={} unprofitable={} no_result={} invalid_state={}",
+                stats.input_rows,
+                stats.output_rows,
+                stats.below_threshold,
+                stats.replay_mismatch,
+                stats.profitable,
+                stats.unprofitable,
+                stats.no_result,
+                stats.invalid_state,
             );
         }
     }
