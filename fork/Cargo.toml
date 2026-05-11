@@ -16,6 +16,7 @@ name = "historical_clmm"
 path = "src/bin/historical_clmm.rs"
 
 [dependencies]
+amm-math = { path = "../crates/amm-math" }
 anyhow = "1"
 base64 = "0.22"
 borsh = "1.5"

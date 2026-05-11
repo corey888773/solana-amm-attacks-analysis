@@ -1,4 +1,5 @@
 pub mod artifacts;
+pub mod attack;
 pub mod config;
 pub mod decode;
 pub mod pipeline;
