@@ -43,6 +43,7 @@ results/
 # === Wewnetrzne plany i notatki (nie do repo) ===
 .docs/
 claude_project/
+thesis/
 
 # === Notatki z PDF-ami (duze pliki, copyrighted) ===
 notatki/
@@ -58,6 +59,10 @@ fork/cache/
 # === MCP / Serena cache ===
 .mcp.json
 .serena/
+
+# === Other tool configs (user-local) ===
+.codex/
+kilo.json
 
 # === Caveman compress backups ===
 *.original.md
