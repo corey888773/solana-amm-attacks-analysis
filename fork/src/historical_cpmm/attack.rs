@@ -14,9 +14,22 @@ use std::path::Path;
 
 const MODEL_VERSION: &str = "cpmm_multi_fee_v1";
 const REPLAY_TOLERANCE_BPS: u64 = 100;
-/// Below this victim_amount_in we mark the row as "not analysis-relevant".
-/// Keeps the candidate set focused on victims large enough for the
-/// sandwich problem to be non-degenerate.
+/// Below this victim `amount_in` we mark the row `below_candidate_threshold`
+/// and skip the sandwich solve.
+///
+/// Rationale for `10_000` base units (mirrors CLMM evaluator):
+/// 1. Economic floor — for 6-decimal stablecoins `10_000` ≈ `$0.01`; for
+///    9-decimal WSOL ≈ `1e-5 SOL ≈ $0.0015` at `$150/SOL`. Below this,
+///    swaps are sub-cent dust (wallet sweeps, rounding, test traffic),
+///    not adversarial trade flow.
+/// 2. Cost-coverage floor — sandwich net profit must cover
+///    `2 * tx_cost_per_leg` (~`0.165` USDC at default
+///    `configs/default.toml`); a `10_000`-unit victim is structurally
+///    loss-making for any frontrun size.
+/// 3. Numerical floor — ternary search degenerates when victim price
+///    impact rounds to zero in `u128` arithmetic.
+///
+/// Overridable via `--min-victim` for sensitivity analysis.
 const DEFAULT_MIN_VICTIM: u128 = 10_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

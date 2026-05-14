@@ -17,6 +17,29 @@ const Q64: f64 = 18_446_744_073_709_551_616.0;
 const MODEL_VERSION: &str = "tick_crossing_v1_float";
 const TICK_ARRAY_STATE_DISCRIMINATOR: [u8; 8] = [0xc0, 0x9b, 0x55, 0xcd, 0x31, 0xf9, 0x81, 0x2a];
 const MAX_TICK_CROSSING_STEPS: usize = 256;
+/// Below this victim `amount_in` we mark the row as
+/// `below_candidate_threshold` and skip the tick-crossing sandwich solve.
+/// Mirrors the CPMM evaluator floor (`historical_cpmm::attack`).
+///
+/// Rationale for `10_000` base units:
+/// 1. Economic floor — pools in scope use 6-decimal stablecoins
+///    (USDC/USDT, `1 USDC = 1_000_000` base units) and 9-decimal WSOL
+///    (`1 SOL ≈ 1_000_000_000`). `10_000` therefore corresponds to roughly
+///    `$0.01` (stable side) or `1e-5 SOL ≈ $0.0015` at `$150/SOL`. Anything
+///    smaller is sub-cent dust — wallet sweeps, rounding remainders or test
+///    transactions, not adversarial trade flow.
+/// 2. Cost-coverage floor — net sandwich profit must cover
+///    `2 * tx_cost_per_leg` (priority fee + Jito tip + base fee). With the
+///    default per-leg cost (≈ `1_105_000` lamports ≈ `0.165` USDC at
+///    `$150/SOL`, see `configs/default.toml`), a victim swap of
+///    `10_000` base units is structurally loss-making for any frontrun
+///    size, so the solve is wasted CPU.
+/// 3. Numerical floor — `compute_numerical_sandwich` ternary search and the
+///    CLMM tick-crossing solve become degenerate when the victim is so
+///    small that the price impact rounds to zero in `u128` arithmetic.
+///
+/// Overridable via `--min-victim` for sensitivity analysis.
+pub const DEFAULT_MIN_VICTIM: u128 = 10_000;
 
 #[derive(Clone, Debug)]
 pub struct LiveAttackConfig {
@@ -24,6 +47,7 @@ pub struct LiveAttackConfig {
     pub max_steps: u64,
     pub replay_tolerance_bps: u64,
     pub tx_cost_per_leg: u128,
+    pub min_victim: u128,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -228,6 +252,14 @@ fn evaluate_candidate_inner(
     let amount_in = candidate
         .amount_in
         .ok_or_else(|| anyhow!("missing amount_in"))?;
+    if amount_in < cfg.min_victim {
+        return Ok(base_row(
+            candidate.clone(),
+            cfg,
+            "rejected",
+            Some("below_candidate_threshold".to_string()),
+        ));
+    }
     let actual_amount_out = candidate
         .actual_amount_out
         .ok_or_else(|| anyhow!("missing actual_amount_out"))?;
