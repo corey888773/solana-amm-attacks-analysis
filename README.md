@@ -1,8 +1,4 @@
-# Analiza podatności protokołów AMM na ataki typu MEV w sieci Solana
-
-Praca magisterska - Politechnika Krakowska, Wydział Informatyki i Telekomunikacji, 2026
-
----
+# Analysis of MEV attack vulnerability in AMM protocols on the Solana network
 
 ## What this project does
 
