@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use fork::historical_clmm::artifacts::write_csv;
-use fork::historical_clmm::attack::{evaluate_live_attacks, LiveAttackConfig};
+use fork::historical_clmm::attack::{evaluate_live_attacks, LiveAttackConfig, DEFAULT_MIN_VICTIM};
 use fork::historical_clmm::config::{select_pools, DEFAULT_RPC_URL};
 use fork::historical_clmm::live::{
     build_live_candidate_readiness, live_candidates_csv, run_live_collect, LiveCollectConfig,
@@ -63,6 +63,13 @@ enum Command {
 
         #[arg(long, default_value_t = 100)]
         replay_tolerance_bps: u64,
+
+        /// Minimum victim `amount_in` below which a row is marked
+        /// `below_candidate_threshold` and skipped. Mirrors the CPMM
+        /// evaluator floor — see `historical_clmm::attack::DEFAULT_MIN_VICTIM`
+        /// for rationale.
+        #[arg(long, default_value_t = DEFAULT_MIN_VICTIM)]
+        min_victim: u128,
     },
 }
 
@@ -157,6 +164,7 @@ fn main() -> Result<()> {
         Command::EvaluateLiveAttacks {
             max_steps,
             replay_tolerance_bps,
+            min_victim,
         } => {
             let output_path = paths.results_dir.join("historical_clmm_candidates.csv");
             let rows = evaluate_live_attacks(&LiveAttackConfig {
@@ -164,6 +172,7 @@ fn main() -> Result<()> {
                 max_steps,
                 replay_tolerance_bps,
                 tx_cost_per_leg: cli.tx_cost_per_leg,
+                min_victim,
             })?;
             let evaluated = rows
                 .iter()
