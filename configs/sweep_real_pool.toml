@@ -1,0 +1,49 @@
+[simulation]
+num_iterations = 1
+seed = 42
+
+# Pool params here are placeholders — overridden by [real_pool] below.
+[pool]
+initial_reserve_a = 1_000_000
+initial_reserve_b = 4_000_000
+fee_bps = 30
+
+[victim]
+swap_amount = 10_000
+slippage_tolerance_bps = 300
+direction = "a_to_b"
+
+[costs]
+# Costs are per attacker leg. Output CSV includes tx_cost_per_leg and tx_cost_total.
+base_fee_lamports = 5000
+priority_fee_lamports = 100_000
+compute_unit_limit = 0
+compute_unit_price_micro_lamports = 0
+jito_tip_lamports = 1_000_000
+# Input token here is WSOL (mint_a) at 9 decimals; 1 SOL = 1e9 lamports of WSOL.
+input_token_per_sol = 1_000_000_000.0
+
+[attacker]
+# Options: "closed_form", "numerical", "fixed".
+# "closed_form" is Zhou baseline; "numerical" uses Raydium multi-fee math.
+strategy = "closed_form"
+
+[real_pool]
+# Path is resolved from the working dir the simulator is invoked from
+# (typically the workspace root).
+manifest = "fork/cache/pools/wsol_surge"
+# Default false: fail if the snapshot cannot be loaded. Set true only for
+# development smoke-tests where synthetic fallback is acceptable.
+allow_synthetic_fallback = false
+
+[sweep]
+parallel = true
+# pool_reserve_a / pool_fee_bps are ignored when [real_pool] is set; only the
+# victim grid varies. WSOL is 9 decimals so victim_swap_amount is in lamports.
+victim_swap_amount = [
+    100_000_000,         # 0.1 WSOL
+    1_000_000_000,       # 1 WSOL
+    10_000_000_000,      # 10 WSOL
+    100_000_000_000,     # 100 WSOL
+]
+victim_slippage_bps = [50, 100, 300, 500]

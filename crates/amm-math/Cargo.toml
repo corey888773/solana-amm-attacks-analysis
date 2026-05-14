@@ -1,0 +1,13 @@
+[package]
+name = "amm-math"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+borsh = { version = "1.6", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1"
+base64 = "0.22"
+serde_json = "1"

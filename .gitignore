@@ -14,9 +14,6 @@
 # === Rust build ===
 target/
 **/*.rs.bk
-Cargo.lock
-# Cargo.lock is gitignored because this is a library/workspace, not a deployed binary.
-# When the project matures and has a deployable binary, consider tracking it.
 
 # === Solana / Anchor ===
 .anchor/
@@ -44,10 +41,9 @@ venv/
 results/
 
 # === Wewnetrzne plany i notatki (nie do repo) ===
-PLAN_KODU.md
-RAPORT_SCENARIUSZE.md
-SOLANA_DLA_LAIKA.md
+.docs/
 claude_project/
+thesis/
 
 # === Notatki z PDF-ami (duze pliki, copyrighted) ===
 notatki/
@@ -59,3 +55,14 @@ fork/cache/
 *.log
 .env
 .env.*
+
+# === MCP / Serena cache ===
+.mcp.json
+.serena/
+
+# === Other tool configs (user-local) ===
+.codex/
+kilo.json
+
+# === Caveman compress backups ===
+*.original.md

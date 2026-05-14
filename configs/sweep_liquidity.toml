@@ -1,0 +1,34 @@
+[simulation]
+num_iterations = 1
+seed = 42
+
+[pool]
+initial_reserve_a = 1_000_000
+initial_reserve_b = 4_000_000
+fee_bps = 30
+
+[victim]
+swap_amount = 10_000
+slippage_tolerance_bps = 300
+direction = "a_to_b"
+
+[costs]
+# Costs are per attacker leg. Output CSV includes tx_cost_per_leg and tx_cost_total.
+base_fee_lamports = 5000
+priority_fee_lamports = 100_000
+compute_unit_limit = 0
+compute_unit_price_micro_lamports = 0
+jito_tip_lamports = 1_000_000
+# Price of 1 SOL in input-token units (see default.toml for explanation).
+input_token_per_sol = 150_000_000.0
+
+[attacker]
+# Options: "closed_form", "numerical", "fixed".
+strategy = "closed_form"
+
+[sweep]
+parallel = true
+pool_reserve_a = [100_000, 300_000, 1_000_000, 3_000_000, 10_000_000, 30_000_000, 100_000_000]
+victim_swap_amount = [500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000]
+pool_fee_bps = [5, 10, 25, 30, 50, 100]
+victim_slippage_bps = [50, 100, 300, 500]

@@ -1,0 +1,18 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+amm = "DEwKoXtDPgme9dVdKVj7eLta7mzFDyGxA9DCssTVEiRz"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[workspace]
+members = [
+    "programs/amm",
+]
+
+[scripts]
+test = "cargo test -p amm --all-targets"
