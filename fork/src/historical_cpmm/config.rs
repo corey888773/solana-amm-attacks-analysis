@@ -18,19 +18,29 @@ impl PoolTarget {
     }
 }
 
+/// Default CPMM pools = top-3 by 24h volume on Raydium CPMM at collection
+/// time (Raydium API v3 `pools/info/list?poolType=standard`, filtered to
+/// `programId == CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`), with a
+/// TVL floor of $200k to exclude wash-trade-suspect pools (vol/TVL > 3).
+///
+/// Selection captured 2026-05-12 for the 24h empirical run; the legacy
+/// contrastive sample (`wsol_surge`, `wsol_debt`) was retired here because
+/// neither remained in the top-15 by volume and the elevated-fee probe
+/// has no analogue in current top-volume CPMM (the high-fee tier is
+/// dominated by sub-$100k-TVL pools).
 pub fn default_pools() -> Vec<PoolTarget> {
     vec![
         PoolTarget {
-            label: "wsol_surge".to_string(),
-            address: "BScfGKZf9YDfpL11hZQnCQPskPrdeyFcvCjSA5qupEH5".to_string(),
+            label: "wsol_ready".to_string(),
+            address: "AiP94aqcnsxPfHTQLerdwNACedhmEUxMaaSxevS2Drxm".to_string(),
         },
         PoolTarget {
             label: "wsol_useless".to_string(),
             address: "Q2sPHPdUWFMg7M7wwrQKLrn619cAucfRsmhVJffodSp".to_string(),
         },
         PoolTarget {
-            label: "wsol_debt".to_string(),
-            address: "9qppy1KXRTFEeWkFaysYHD7eu9GLg5pGXdLkdL51p7EX".to_string(),
+            label: "wsol_idle".to_string(),
+            address: "AEZjoUACNSpmYHHRNbfknjL8oiBDw6GhtrMm7tZgBfca".to_string(),
         },
     ]
 }
