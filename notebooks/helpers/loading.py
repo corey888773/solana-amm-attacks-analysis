@@ -174,6 +174,7 @@ def normalize_simulator_rows(df: pd.DataFrame, dataset_name: str) -> pd.DataFram
 
 def load_inputs(root: Path) -> dict:
     configured_results = os.environ.get("MEV_RESULTS_DIR")
+    configured_cpmm = os.environ.get("MEV_CPMM_RESULTS_DIR")
     results = root / "results"
     clmm_results = (
         Path(configured_results).expanduser()
@@ -182,6 +183,13 @@ def load_inputs(root: Path) -> dict:
     )
     if not clmm_results.is_absolute():
         clmm_results = root / clmm_results
+    cpmm_results = (
+        Path(configured_cpmm).expanduser()
+        if configured_cpmm
+        else results
+    )
+    if not cpmm_results.is_absolute():
+        cpmm_results = root / cpmm_results
     paths = {
         "synthetic_sweep": first_existing(results, "sweep.csv", "output.csv"),
         "zhou_vs_numerical": first_existing(results, "zhou_vs_numerical.csv"),
@@ -191,22 +199,27 @@ def load_inputs(root: Path) -> dict:
             "sweep_real_pool.csv",
         ),
         "historical_cpmm_swaps_status": first_existing(
-            results,
+            cpmm_results,
             "historical_cpmm_swaps_status.csv",
         ),
         "historical_cpmm_pipeline_summary": first_existing(
-            results,
+            cpmm_results,
             "historical_cpmm_pipeline_summary.csv",
         ),
         "historical_cpmm_decoded": first_existing(
-            results,
+            cpmm_results,
             "historical_cpmm_decoded.csv",
         ),
         "historical_cpmm_candidates": first_existing(
-            results,
+            cpmm_results,
+            "historical_cpmm_candidates_with_real_feas.csv",
             "historical_cpmm_candidates.csv",
         ),
-        "historical_cpmm": first_existing(results, "historical_cpmm_candidates.csv"),
+        "historical_cpmm": first_existing(
+            cpmm_results,
+            "historical_cpmm_candidates_with_real_feas.csv",
+            "historical_cpmm_candidates.csv",
+        ),
         "historical_clmm_swaps_status": first_existing(
             results,
             "historical_clmm_swaps_status.csv",
@@ -237,9 +250,14 @@ def load_inputs(root: Path) -> dict:
         ),
         "historical_clmm_candidates": first_existing(
             clmm_results,
+            "historical_clmm_candidates_with_real_feas.csv",
             "historical_clmm_candidates.csv",
         ),
-        "historical_clmm": first_existing(clmm_results, "historical_clmm_candidates.csv"),
+        "historical_clmm": first_existing(
+            clmm_results,
+            "historical_clmm_candidates_with_real_feas.csv",
+            "historical_clmm_candidates.csv",
+        ),
     }
     frames = {
         "synthetic_sweep": normalize_simulator_rows(
