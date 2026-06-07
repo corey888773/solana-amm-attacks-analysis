@@ -66,3 +66,6 @@ kilo.json
 
 # === Caveman compress backups ===
 *.original.md
+
+# executed notebook copies (outputs) — generated artifacts
+notebooks/output/executed_*.ipynb
